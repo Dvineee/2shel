@@ -1,0 +1,6 @@
+{
+  "name": "ShelbyOnline",
+  "description": "ShelbyOnline - Premium sponsor, bonus ve kampanya yönetim platformu. Çark, çekiliş, mağaza, leaderboard ve dinamik admin CMS paneli.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

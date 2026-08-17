@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-main: #070510;
+    --bg-surface: #0d0918;
+    --bg-card: #120b24;
+    --bg-card-hover: #190f33;
+    --accent-purple: #7c3aed;
+    --accent-violet: #8b5cf6;
+    --accent-gold: #f59e0b;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: #f1f5f9;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom modern dark scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #070510;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2e1d52;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #7c3aed;
+  }
+}
+
+/* Glass & Glow utilities */
+.glass-panel {
+  background: rgba(18, 11, 36, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+}
+
+.glass-card {
+  background: linear-gradient(180deg, rgba(22, 14, 44, 0.8) 0%, rgba(13, 9, 24, 0.95) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-card:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  box-shadow: 0 12px 40px 0 rgba(124, 58, 237, 0.22);
+}
+
+.glow-purple {
+  box-shadow: 0 0 25px rgba(124, 58, 237, 0.35);
+}
+
+.glow-gold {
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.35);
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 8s linear infinite;
+}
+
+.safe-area-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.2);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.5);
+}
+
+.animate-marquee {
+  display: inline-flex;
+  animation: marquee 32s linear infinite;
+  will-change: transform;
+}
+
+.marquee-container:hover .animate-marquee,
+.animate-marquee:hover,
+.animate-marquee-paused {
+  animation-play-state: paused !important;
+}
+
+.mask-linear {
+  mask-image: linear-gradient(to right, transparent, black 4%, black 96%, transparent);
+}
+
