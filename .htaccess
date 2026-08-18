@@ -1,23 +1,97 @@
-# ----------------------------------------------------------------------
-# LiteSpeed / Apache SPA URL Rewrite & Direct Refresh Configuration
-# ----------------------------------------------------------------------
+# ==============================================================================
+# SPONSORHUB - LiteSpeed & Apache Production Configuration (.htaccess)
+# ==============================================================================
 
-# Disable MultiViews so LiteSpeed doesn't try to guess file extensions
-Options -MultiViews
+# 1. Disable Directory Browsing & MultiViews
+Options -Indexes -MultiViews
 
+# 2. UTF-8 Encoding
+AddDefaultCharset UTF-8
+DefaultLanguage tr-TR
+
+# 3. Single Page Application (SPA) URL Rewriting
+# Tüm rotaları (/giveaways, /wheel, /store, /sponsors, /admin/* vb.) index.html'e yönlendirir.
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
 
-  # Don't rewrite actual files, directories, or symlinks
+  # HTTPS Yönlendirmesi (Gerektiğinde aktifleştirilebilir)
+  # RewriteCond %{HTTPS} off
+  # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Gerçek dosya, klasör veya sembolik bağlantı ise yönlendirme yapma
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d [OR]
   RewriteCond %{REQUEST_FILENAME} -l
   RewriteRule ^ - [L]
 
-  # Direct all other routes (/giveaways, /wheel, /store, /sponsors, /admin/*) directly to index.html
+  # Diğer tüm istekleri index.html'e ilet
   RewriteRule ^ index.html [QSA,L]
 </IfModule>
 
-# Fallback for LiteSpeed error handler to directly serve index.html with 200/404 preservation
+# 4. LiteSpeed / Apache 404 Fallback
 ErrorDocument 404 /index.html
+
+# 5. Security Headers
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-XSS-Protection "1; mode=block"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  # Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+# 6. Gzip / Deflate Compression (Performans & Hızlı Yükleme)
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html
+  AddOutputFilterByType DEFLATE text/plain
+  AddOutputFilterByType DEFLATE text/xml
+  AddOutputFilterByType DEFLATE text/css
+  AddOutputFilterByType DEFLATE text/javascript
+  AddOutputFilterByType DEFLATE application/javascript
+  AddOutputFilterByType DEFLATE application/x-javascript
+  AddOutputFilterByType DEFLATE application/json
+  AddOutputFilterByType DEFLATE application/xml
+  AddOutputFilterByType DEFLATE image/svg+xml
+  AddOutputFilterByType DEFLATE font/ttf
+  AddOutputFilterByType DEFLATE font/otf
+  AddOutputFilterByType DEFLATE font/woff
+  AddOutputFilterByType DEFLATE font/woff2
+</IfModule>
+
+# 7. Browser Caching (Statik Dosya Önbellekleme)
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresDefault "access plus 1 month"
+
+  # HTML & Manifest (Hızlı güncelleme için kısa süre)
+  ExpiresByType text/html "access plus 0 seconds"
+  ExpiresByType application/json "access plus 0 seconds"
+
+  # CSS & JavaScript
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType text/javascript "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+
+  # Görseller & İkonlar
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/webp "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType image/x-icon "access plus 1 year"
+
+  # Fontlar
+  ExpiresByType font/woff "access plus 1 year"
+  ExpiresByType font/woff2 "access plus 1 year"
+  ExpiresByType application/font-woff "access plus 1 year"
+  ExpiresByType application/font-woff2 "access plus 1 year"
+</IfModule>
+
+# 8. MIME Types
+<IfModule mod_mime.c>
+  AddType application/javascript js mjs
+  AddType text/css css
+  AddType image/svg+xml svg svgz
+  AddType image/webp webp
+  AddType font/woff woff
+  AddType font/woff2 woff2
+</IfModule>

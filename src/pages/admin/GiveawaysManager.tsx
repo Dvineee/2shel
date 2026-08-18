@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
 import confetti from 'canvas-confetti';
 import { formatDate } from '../../lib/utils';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
 
 export const GiveawaysManager: React.FC = () => {
   const { giveaways, refreshAll } = useData();
@@ -1207,28 +1208,17 @@ export const GiveawaysManager: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Görsel URL *</label>
-                <input
-                  type="text"
+                <ImageUploadField
+                  id="giveaway-image-upload"
+                  label="Çekiliş Görseli"
                   required
                   value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white placeholder:text-slate-600 focus:border-violet-500 focus:outline-none text-xs"
+                  onChange={setImageUrl}
+                  helpText="PNG, JPG veya WEBP görseli yükleyin veya URL yapıştırın."
+                  aspectHint="Önerilen: 600x400px"
+                  maxDimension={1000}
+                  previewClassName="h-12 w-20"
                 />
-                {imageUrl && (
-                  <div className="mt-1.5 flex items-center gap-2 p-1.5 rounded-xl bg-[#080512] border border-violet-900/30">
-                    <img
-                      src={imageUrl}
-                      alt="Önizleme"
-                      className="w-10 h-7 rounded-lg object-cover border border-violet-800/40"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                    <span className="text-[10px] text-slate-400 truncate flex-1">Görsel Önizleme</span>
-                  </div>
-                )}
               </div>
 
               <div>

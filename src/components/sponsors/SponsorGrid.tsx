@@ -1,128 +1,88 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { Sponsor } from '../../types';
 import { SponsorCard } from './SponsorCard';
-import { ShieldCheck, Search, Flame, Award, Gift } from 'lucide-react';
+import { Crown, Gift } from 'lucide-react';
+import { sortSponsors } from '../../lib/sponsorUtils';
 
 interface SponsorGridProps {
   sponsors: Sponsor[];
   loading?: boolean;
   title?: string;
-  showFilters?: boolean;
+  showFilters?: boolean; // kept for interface compatibility if passed
+  defaultViewMode?: 'list' | 'grid';
 }
 
 export const SponsorGrid: React.FC<SponsorGridProps> = ({
   sponsors,
   loading = false,
-  title = 'GÜVENİLİR SPONSORLAR',
-  showFilters = true,
+  title = 'GÜVENİLİR SPONSORLAR & BONUSLAR',
 }) => {
-  const [filter, setFilter] = useState<'all' | 'featured' | 'verified'>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-
-  const filtered = useMemo(() => {
-    return sponsors.filter((s) => {
-      if (filter === 'featured' && !s.featured) return false;
-      if (filter === 'verified' && !s.verified) return false;
-      if (searchTerm.trim()) {
-        const query = searchTerm.toLowerCase();
-        const nameMatch = s.name.toLowerCase().includes(query);
-        const descMatch = s.description?.toLowerCase().includes(query) || s.short_description?.toLowerCase().includes(query);
-        const featMatch = s.features?.some((f) => f.text.toLowerCase().includes(query));
-        return nameMatch || descMatch || featMatch;
-      }
-      return true;
-    });
-  }, [sponsors, filter, searchTerm]);
+  // Sorted sponsors: strictly by sort_order
+  const sortedSponsors = useMemo(() => {
+    const active = sponsors.filter((s) => s.active !== false);
+    return sortSponsors(active);
+  }, [sponsors]);
 
   return (
-    <section className="my-6">
-      {/* Header with Title & Filters */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-violet-600/30">
-            <ShieldCheck className="w-5 h-5" />
+    <section className="my-8 space-y-4">
+      {/* Clean Header Bar */}
+      <div className="flex items-center justify-between p-4 md:p-5 rounded-2xl md:rounded-3xl bg-gradient-to-r from-[#150d2c] via-[#100922] to-[#0c071a] border border-violet-800/30 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 via-purple-600 to-emerald-500 p-0.5 shadow-lg shadow-violet-600/30 shrink-0">
+            <div className="w-full h-full bg-[#0e081f] rounded-[14px] flex items-center justify-center text-amber-300">
+              <Crown className="w-5 h-5" />
+            </div>
           </div>
           <div>
-            <h2 className="text-lg md:text-xl font-extrabold text-white tracking-tight">
-              {title}
+            <h2 className="text-lg md:text-xl font-black text-white tracking-tight flex items-center gap-2">
+              <span>{title}</span>
             </h2>
             <p className="text-xs text-slate-400">
-              Lisanslı ve en yüksek bonuslu onaylı platformlar
+              Lisanslı, doğrulanmış ve anında çekim garantili sponsor listesi
             </p>
           </div>
         </div>
 
-        {showFilters && (
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Filter Tabs */}
-            <div className="inline-flex p-1 rounded-xl bg-[#120b24] border border-violet-800/30">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  filter === 'all'
-                    ? 'bg-violet-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Tümü ({sponsors.length})
-              </button>
-              <button
-                onClick={() => setFilter('featured')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-                  filter === 'featured'
-                    ? 'bg-violet-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Flame className="w-3.5 h-3.5 text-amber-400" />
-                Öne Çıkanlar
-              </button>
-              <button
-                onClick={() => setFilter('verified')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-                  filter === 'verified'
-                    ? 'bg-violet-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Award className="w-3.5 h-3.5 text-emerald-400" />
-                Doğrulanmış
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-violet-950/50 border border-violet-800/30 text-xs font-bold text-violet-300">
+          <span>{sortedSponsors.length} Sponsor Listelendi</span>
+        </div>
       </div>
 
-      {/* Grid Content */}
+      {/* Loading Skeleton */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((n) => (
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map((n) => (
             <div
               key={n}
-              className="h-80 rounded-2xl md:rounded-3xl bg-[#120b24]/50 border border-violet-900/30 animate-pulse p-4 space-y-4"
+              className="h-24 md:h-28 rounded-2xl md:rounded-3xl bg-[#120b24]/50 border border-violet-900/30 animate-pulse p-4 flex items-center justify-between gap-4"
             >
-              <div className="h-6 w-24 bg-violet-900/30 rounded-md" />
-              <div className="h-20 bg-violet-900/30 rounded-xl" />
-              <div className="h-12 bg-violet-900/30 rounded-lg" />
-              <div className="h-16 bg-violet-900/20 rounded-lg" />
+              <div className="h-16 w-32 bg-violet-900/30 rounded-xl" />
+              <div className="h-8 flex-1 bg-violet-900/20 rounded-lg hidden sm:block" />
+              <div className="h-10 w-28 bg-violet-900/40 rounded-xl" />
             </div>
           ))}
         </div>
-      ) : filtered.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {filtered.map((sponsor) => (
-            <SponsorCard key={sponsor.id} sponsor={sponsor} />
-          ))}
-        </div>
-      ) : (
+      ) : sortedSponsors.length === 0 ? (
         <div className="text-center py-12 px-4 rounded-3xl bg-[#120b24]/40 border border-violet-900/30">
           <div className="w-12 h-12 rounded-full bg-violet-900/30 text-violet-400 flex items-center justify-center mx-auto mb-3">
             <Gift className="w-6 h-6" />
           </div>
-          <h3 className="text-base font-bold text-white">Eşleşen Sponsor Bulunamadı</h3>
+          <h3 className="text-base font-bold text-white">Henüz Aktif Sponsor Bulunmuyor</h3>
           <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-            Arama kriterlerinize uygun sponsor bulunamadı. Lütfen filtrelerinizi kontrol edin.
+            Yönetim panelinden sponsorları aktif edebilir veya yeni sponsor ekleyebilirsiniz.
           </p>
+        </div>
+      ) : (
+        /* Alt Alta Sıralı Liste */
+        <div className="space-y-3">
+          {sortedSponsors.map((sponsor, idx) => (
+            <SponsorCard
+              key={sponsor.id}
+              sponsor={sponsor}
+              variant="row"
+              rank={idx + 1}
+            />
+          ))}
         </div>
       )}
     </section>

@@ -84,6 +84,8 @@ export const initialSponsors: Sponsor[] = [
     verified: true,
     active: true,
     sort_order: 1,
+    category: 'main',
+    badge_text: 'ANA SPONSOR',
     stats: [
       { id: 'st-1', label: 'İlk Yatırım', value: '%300', sort_order: 1 },
       { id: 'st-2', label: 'Deneme Bonusu', value: '250 TL', sort_order: 2 },
@@ -111,6 +113,8 @@ export const initialSponsors: Sponsor[] = [
     verified: true,
     active: true,
     sort_order: 2,
+    category: 'main',
+    badge_text: 'ANA SPONSOR',
     stats: [
       { id: 'st-4', label: 'Deneme', value: '500 TL', sort_order: 1 },
       { id: 'st-5', label: 'Hoş Geldin', value: '%100', sort_order: 2 },
@@ -138,6 +142,8 @@ export const initialSponsors: Sponsor[] = [
     verified: true,
     active: true,
     sort_order: 3,
+    category: 'vip',
+    badge_text: 'VIP SPONSOR',
     stats: [
       { id: 'st-7', label: 'Deneme', value: '100 TL', sort_order: 1 },
       { id: 'st-8', label: 'Free Spin', value: '100 FS', sort_order: 2 },
@@ -164,6 +170,8 @@ export const initialSponsors: Sponsor[] = [
     verified: true,
     active: true,
     sort_order: 4,
+    category: 'vip',
+    badge_text: 'VIP SPONSOR',
     stats: [
       { id: 'st-10', label: 'Deneme', value: '300 TL', sort_order: 1 },
       { id: 'st-11', label: 'Slot İade', value: '%30', sort_order: 2 },
@@ -190,6 +198,8 @@ export const initialSponsors: Sponsor[] = [
     verified: true,
     active: true,
     sort_order: 5,
+    category: 'trusted',
+    badge_text: 'GÜVENİLİR SPONSOR',
     stats: [
       { id: 'st-13', label: 'Deneme', value: '100 TL', sort_order: 1 },
       { id: 'st-14', label: 'İlk Yatırım', value: '%100', sort_order: 2 },
@@ -216,6 +226,8 @@ export const initialSponsors: Sponsor[] = [
     verified: true,
     active: true,
     sort_order: 6,
+    category: 'trusted',
+    badge_text: 'GÜVENİLİR SPONSOR',
     stats: [
       { id: 'st-16', label: 'Deneme', value: '200 TL', sort_order: 1 },
       { id: 'st-17', label: 'Free Spin', value: '200 FS', sort_order: 2 },
@@ -231,33 +243,24 @@ export const initialSponsors: Sponsor[] = [
 export const initialHeroSlides: HeroSlide[] = [
   {
     id: 'slide-1',
-    title: 'SHELBYONLINE PREMIUM ETKİNLİKLERİ',
-    subtitle: 'Doğrulanmış en yüksek bonuslu sponsorlar, günlük ücretsiz çark ve dev ödüllü çekilişler!',
     desktop_image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1400&h=500&q=80',
     mobile_image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=800&h=600&q=80',
-    button_text: 'ÇEKİLİŞLERE KATIL',
     target_url: '/giveaways',
     sort_order: 1,
     active: true,
   },
   {
     id: 'slide-2',
-    title: 'HER GÜN ÜCRETSİZ ŞANS ÇARKI',
-    subtitle: 'Giriş yap, günlük çarkını çevir, nakit ödüller ve Shelby Coinleri anında hesabına topla!',
     desktop_image: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1400&h=500&q=80',
     mobile_image: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&h=600&q=80',
-    button_text: 'ÇARKI ÇEVİR',
     target_url: '/wheel',
     sort_order: 2,
     active: true,
   },
   {
     id: 'slide-3',
-    title: 'ÖZEL COIN HEDİYE MAĞAZASI',
-    subtitle: 'Topladığın coinlerle Steam cüzdan kodları, hediye kartları ve VIP avantajları anında satın al.',
     desktop_image: 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=1400&h=500&q=80',
     mobile_image: 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?auto=format&fit=crop&w=800&h=600&q=80',
-    button_text: 'MAĞAZAYA GÖZ AT',
     target_url: '/store',
     sort_order: 3,
     active: true,

@@ -13,6 +13,7 @@ import {
   Crown,
   Layers,
   FileText,
+  Users,
 } from 'lucide-react';
 import { soundEngine } from '../../lib/sound';
 
@@ -29,12 +30,13 @@ export const AdminLayout: React.FC = () => {
 
   const menuItems = [
     { to: '/admin', label: 'Genel Bakış', icon: LayoutDashboard, end: true },
+    { to: '/admin/users', label: 'Kullanıcılar & Yetkiler', icon: Users },
     { to: '/admin/pages', label: 'Sayfa Yönetimi (Aktif/Pasif)', icon: Layers },
     { to: '/admin/sponsors', label: 'Sponsor Yönetimi', icon: ShieldCheck },
     { to: '/admin/banners', label: 'Banner & Slider', icon: Image },
     { to: '/admin/wheel', label: 'Çark Ödülleri', icon: Disc },
     { to: '/admin/giveaways', label: 'Çekiliş Yönetimi', icon: Gift },
-    { to: '/admin/store', label: 'Mağaza Ürünleri', icon: ShoppingBag },
+    { to: '/admin/store', label: 'Mağaza & Siparişler', icon: ShoppingBag },
     { to: '/admin/settings', label: 'Site Ayarları & Sosyal', icon: Settings },
     { to: '/admin/logs', label: 'Sistem & Güvenlik Logları', icon: FileText },
   ];

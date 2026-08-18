@@ -25,6 +25,7 @@ import { ProfilePage } from './pages/Profile';
 // Admin Pages
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboard } from './pages/admin/Dashboard';
+import { UsersManager } from './pages/admin/UsersManager';
 import { PagesManager } from './pages/admin/PagesManager';
 import { SponsorsManager } from './pages/admin/SponsorsManager';
 import { BannersManager } from './pages/admin/BannersManager';
@@ -138,6 +139,7 @@ export function App() {
             {/* Admin Layout */}
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<AdminDashboard />} />
+              <Route path="users" element={<UsersManager />} />
               <Route path="pages" element={<PagesManager />} />
               <Route path="sponsors" element={<SponsorsManager />} />
               <Route path="banners" element={<BannersManager />} />

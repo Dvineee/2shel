@@ -11,10 +11,14 @@ import {
 } from '../types';
 import { db } from '../lib/db';
 import { initialSiteSettings } from '../lib/initialData';
+import { sortSponsors, getSponsorCategory } from '../lib/sponsorUtils';
 
 interface DataContextType {
   sponsors: Sponsor[];
   activeSponsors: Sponsor[];
+  mainSponsors: Sponsor[];
+  vipSponsors: Sponsor[];
+  trustedSponsors: Sponsor[];
   featuredSponsors: Sponsor[];
   heroSlides: HeroSlide[];
   banners: Banner[];
@@ -118,8 +122,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSettings(updated);
   };
 
-  const activeSponsors = sponsors.filter((s) => s.active !== false);
-  const featuredSponsors = activeSponsors.filter((s) => s.featured);
+  const sortedAllSponsors = sortSponsors(sponsors);
+  const activeSponsors = sortSponsors(sortedAllSponsors.filter((s) => s.active !== false));
+  const mainSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'main');
+  const vipSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'vip');
+  const trustedSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'trusted');
+  const featuredSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'vip' || s.featured);
   const activeBanners = banners.filter((b) => b.active !== false);
 
   const topBanners = activeBanners.filter(
@@ -134,8 +142,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <DataContext.Provider
       value={{
-        sponsors,
+        sponsors: sortedAllSponsors,
         activeSponsors,
+        mainSponsors,
+        vipSponsors,
+        trustedSponsors,
         featuredSponsors,
         heroSlides: heroSlides.filter((s) => s.active !== false),
         banners,

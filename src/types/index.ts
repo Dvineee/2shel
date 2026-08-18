@@ -44,6 +44,8 @@ export interface SponsorFeature {
   sort_order?: number;
 }
 
+export type SponsorCategory = 'main' | 'vip' | 'trusted';
+
 export interface Sponsor {
   id: string;
   name: string;
@@ -59,6 +61,7 @@ export interface Sponsor {
   verified: boolean;
   active: boolean;
   sort_order: number;
+  category?: SponsorCategory;
   bonus_text?: string;
   bonus_code?: string;
   min_deposit?: string;
@@ -78,11 +81,11 @@ export interface Sponsor {
 
 export interface HeroSlide {
   id: string;
-  title: string;
-  subtitle: string;
+  title?: string;
+  subtitle?: string;
   desktop_image: string;
   mobile_image?: string;
-  button_text: string;
+  button_text?: string;
   target_url: string;
   sort_order: number;
   active: boolean;
@@ -209,6 +212,8 @@ export interface StoreProduct {
   created_at?: string;
 }
 
+export type PayoutType = 'trx' | 'iban';
+
 export interface StoreOrder {
   id: string;
   user_id: string;
@@ -216,9 +221,15 @@ export interface StoreOrder {
   product_id: string;
   product_name?: string;
   coin_price: number;
-  status: 'pending' | 'completed' | 'cancelled';
+  payout_type?: PayoutType;
+  payout_address?: string;
+  payout_holder_name?: string;
+  payout_bank_name?: string;
+  status: 'pending' | 'completed' | 'cancelled' | 'rejected';
   delivery_note?: string;
+  admin_note?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface PageControlItem {

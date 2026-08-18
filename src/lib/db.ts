@@ -1,5 +1,6 @@
 import {
   Sponsor,
+  SponsorCategory,
   HeroSlide,
   Banner,
   BannerPosition,
@@ -13,10 +14,12 @@ import {
   StoreOrder,
   SiteSettings,
   Profile,
+  UserRole,
   AdminLog,
   StreakDayConfig,
   UserStreakInfo,
 } from '../types';
+import { getSponsorCategory, sortSponsors } from './sponsorUtils';
 import {
   initialGiveawayTemplates,
   initialSiteSettings,
@@ -53,6 +56,14 @@ const STORAGE_KEYS = {
 };
 
 // Local cache sync helper
+function broadcastChange(key?: string) {
+  try {
+    window.dispatchEvent(new CustomEvent('sponsorhub_db_change', { detail: { key } }));
+  } catch {
+    // ignore
+  }
+}
+
 function getStored<T>(key: string, defaultValue: T): T {
   try {
     const item = localStorage.getItem(key);
@@ -66,7 +77,7 @@ function setStored<T>(key: string, value: T, silent = false): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     if (!silent) {
-      window.dispatchEvent(new CustomEvent('sponsorhub_db_change', { detail: { key } }));
+      broadcastChange(key);
     }
   } catch (err) {
     console.error('Storage error:', err);
@@ -169,33 +180,38 @@ export const db = {
 
     let mappedSponsors: Sponsor[] = [];
     if (Array.isArray(sponsors)) {
-      mappedSponsors = sponsors.map((d: any) => ({
-        ...d,
-        id: d.id,
-        name: d.name,
-        slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : d.id),
-        logo_url: d.logo_url,
-        banner_url: d.banner_url || '',
-        bonus_text: d.bonus_text || '',
-        description: d.full_review || d.description || '',
-        short_description: d.short_desc || d.short_description || '',
-        website_url: d.direct_url || d.website_url || 'https://example.com',
-        button_text: d.button_text || 'DETAYLARI GÖR',
-        rating: Number(d.rating || 4.8),
-        featured: d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured),
-        verified: d.is_active !== false,
-        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-        sort_order: d.sort_order || 0,
-        stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
-          { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-          { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
-          { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
-        ],
-        features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
-          { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
-          { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
-        ],
-      }));
+      mappedSponsors = sponsors.map((d: any) => {
+        const cat = getSponsorCategory(d);
+        return {
+          ...d,
+          id: d.id,
+          name: d.name,
+          slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : d.id),
+          logo_url: d.logo_url,
+          banner_url: d.banner_url || '',
+          bonus_text: d.bonus_text || '',
+          description: d.full_review || d.description || '',
+          short_description: d.short_desc || d.short_description || '',
+          website_url: d.direct_url || d.website_url || 'https://example.com',
+          button_text: d.button_text || 'DETAYLARI GÖR',
+          rating: Number(d.rating || 4.8),
+          category: cat,
+          featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured)),
+          verified: d.is_active !== false,
+          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (parseInt(d.sort_order) || 0),
+          stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
+            { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
+            { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
+            { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
+          ],
+          features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
+            { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
+            { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
+          ],
+        };
+      });
+      mappedSponsors = sortSponsors(mappedSponsors);
       setStored(STORAGE_KEYS.SPONSORS, mappedSponsors, true);
     }
 
@@ -488,44 +504,48 @@ export const db = {
           8000
         );
         if (!error && Array.isArray(data)) {
-          const mapped = data.map((d: any) => ({
-            ...d,
-            id: d.id,
-            name: d.name,
-            slug: d.slug,
-            logo_url: d.logo_url,
-            banner_url: d.banner_url || '',
-            bonus_text: d.bonus_text || '',
-            description: d.full_review || d.description || '',
-            short_description: d.short_desc || d.short_description || '',
-            website_url: d.direct_url || d.website_url || 'https://example.com',
-            button_text: d.button_text || 'DETAYLARI GÖR',
-            rating: Number(d.rating || 4.8),
-            featured: d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured),
-            verified: d.is_active !== false,
-            active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-            sort_order: d.sort_order || 0,
-            stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
-              { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-              { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
-              { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
-            ],
-            features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
-              { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
-              { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
-            ],
-          })) as Sponsor[];
-          setStored(STORAGE_KEYS.SPONSORS, mapped, true);
-          return mapped;
+          const mapped = data.map((d: any) => {
+            const cat = getSponsorCategory(d);
+            return {
+              ...d,
+              id: d.id,
+              name: d.name,
+              slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : d.id),
+              logo_url: d.logo_url,
+              banner_url: d.banner_url || '',
+              bonus_text: d.bonus_text || '',
+              description: d.full_review || d.description || '',
+              short_description: d.short_desc || d.short_description || '',
+              website_url: d.direct_url || d.website_url || 'https://example.com',
+              button_text: d.button_text || 'DETAYLARI GÖR',
+              rating: Number(d.rating || 4.8),
+              category: cat,
+              featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured)),
+              verified: d.is_active !== false,
+              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+              sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (parseInt(d.sort_order) || 0),
+              stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
+                { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
+                { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
+                { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
+              ],
+              features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
+                { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
+                { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
+              ],
+            };
+          }) as Sponsor[];
+          const sorted = sortSponsors(mapped);
+          setStored(STORAGE_KEYS.SPONSORS, sorted, true);
+          return sorted;
         }
       } catch (err) {
         console.warn('Supabase getSponsors error:', err);
       }
     }
-    const storedSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
-    return storedSponsors.sort(
-      (a, b) => a.sort_order - b.sort_order
-    );
+    const storedSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+    const finalSponsors = (storedSponsors && storedSponsors.length > 0) ? storedSponsors : initialSponsors;
+    return sortSponsors(finalSponsors);
   },
 
   async getSponsorBySlug(slug: string): Promise<Sponsor | null> {
@@ -544,6 +564,7 @@ export const db = {
   async saveSponsor(sponsor: Partial<Sponsor>): Promise<Sponsor> {
     const sponsors = await this.getSponsors();
     let saved: Sponsor;
+    const cat = getSponsorCategory(sponsor);
 
     if (sponsor.id) {
       const index = sponsors.findIndex((s) => s.id === sponsor.id);
@@ -551,11 +572,20 @@ export const db = {
         saved = {
           ...sponsors[index],
           ...sponsor,
+          category: cat,
+          featured: cat === 'vip' || Boolean(sponsor.featured),
+          sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors[index].sort_order,
           updated_at: new Date().toISOString(),
         } as Sponsor;
         sponsors[index] = saved;
       } else {
-        saved = { ...sponsor, id: sponsor.id || `sp-${Date.now()}` } as Sponsor;
+        saved = {
+          ...sponsor,
+          id: sponsor.id,
+          category: cat,
+          featured: cat === 'vip' || Boolean(sponsor.featured),
+          sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors.length + 1,
+        } as Sponsor;
         sponsors.push(saved);
       }
     } else {
@@ -570,10 +600,11 @@ export const db = {
         website_url: sponsor.website_url || 'https://example.com',
         button_text: sponsor.button_text || 'DETAYLARI GÖR',
         rating: sponsor.rating || 4.8,
-        featured: Boolean(sponsor.featured),
+        category: cat,
+        featured: cat === 'vip' || Boolean(sponsor.featured),
         verified: sponsor.verified !== false,
         active: sponsor.active !== false,
-        sort_order: sponsor.sort_order || sponsors.length + 1,
+        sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors.length + 1,
         stats: sponsor.stats || [
           { id: `stat-${Date.now()}-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
           { id: `stat-${Date.now()}-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
@@ -589,7 +620,8 @@ export const db = {
       sponsors.push(saved);
     }
 
-    setStored(STORAGE_KEYS.SPONSORS, sponsors);
+    const sortedList = sortSponsors(sponsors);
+    setStored(STORAGE_KEYS.SPONSORS, sortedList);
 
     if (isSupabaseReady()) {
       try {
@@ -607,8 +639,9 @@ export const db = {
           full_review: saved.description || (saved as any).full_review || null,
           features: saved.features || [],
           tags: (saved as any).tags || [],
+          category: saved.category || cat,
           is_active: saved.active !== false,
-          is_vip: Boolean(saved.featured),
+          is_vip: saved.category === 'vip' || Boolean(saved.featured),
           is_popular: Boolean((saved as any).is_popular),
           sort_order: saved.sort_order || 0,
           created_at: saved.created_at || new Date().toISOString(),
@@ -623,7 +656,7 @@ export const db = {
       sponsor.id ? 'Sponsor Güncellendi' : 'Yeni Sponsor Eklendi',
       'sponsor',
       saved.id,
-      { name: saved.name, slug: saved.slug }
+      { name: saved.name, slug: saved.slug, category: saved.category, sort_order: saved.sort_order }
     );
     return saved;
   },
@@ -632,7 +665,8 @@ export const db = {
     const sponsors = await this.getSponsors();
     const target = sponsors.find((s) => s.id === id);
     const filtered = sponsors.filter((s) => s.id !== id);
-    setStored(STORAGE_KEYS.SPONSORS, filtered);
+    const sorted = sortSponsors(filtered);
+    setStored(STORAGE_KEYS.SPONSORS, sorted);
 
     if (isSupabaseReady()) {
       try {
@@ -664,11 +698,12 @@ export const db = {
       }
     });
 
-    setStored(STORAGE_KEYS.SPONSORS, updated);
+    const sorted = sortSponsors(updated);
+    setStored(STORAGE_KEYS.SPONSORS, sorted);
 
     if (isSupabaseReady()) {
       try {
-        for (const sp of updated) {
+        for (const sp of sorted) {
           await supabase.from('sponsors').update({ sort_order: sp.sort_order }).eq('id', sp.id);
         }
       } catch (err) {
@@ -676,7 +711,80 @@ export const db = {
       }
     }
 
+    broadcastChange();
     await invalidateServerCache();
+  },
+
+  async moveSponsorOrder(id: string, direction: 'up' | 'down'): Promise<Sponsor[]> {
+    const sponsors = await this.getSponsors();
+    const sorted = sortSponsors(sponsors);
+    const index = sorted.findIndex((s) => s.id === id);
+    if (index === -1) return sorted;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sorted.length) return sorted;
+
+    const currentItem = sorted[index];
+    const targetItem = sorted[targetIndex];
+
+    // Swap items in sorted array
+    sorted[index] = targetItem;
+    sorted[targetIndex] = currentItem;
+
+    // Renumber sequential sort_orders (1..N)
+    const updated = sorted.map((sp, idx) => ({
+      ...sp,
+      sort_order: idx + 1,
+      updated_at: new Date().toISOString(),
+    }));
+
+    setStored(STORAGE_KEYS.SPONSORS, updated);
+
+    if (isSupabaseReady()) {
+      try {
+        for (const item of updated) {
+          await supabase.from('sponsors').update({ sort_order: item.sort_order }).eq('id', item.id);
+        }
+      } catch (err) {
+        console.warn('Supabase moveSponsorOrder error:', err);
+      }
+    }
+
+    broadcastChange();
+    await invalidateServerCache();
+    return updated;
+  },
+
+  async setSponsorSortOrder(id: string, newOrder: number): Promise<Sponsor[]> {
+    const sponsors = await this.getSponsors();
+    const target = sponsors.find((s) => s.id === id);
+    if (!target) return sponsors;
+
+    target.sort_order = Math.max(1, Number(newOrder) || 1);
+    target.updated_at = new Date().toISOString();
+
+    const sorted = sortSponsors(sponsors);
+    // Renumber sequentially
+    const updated = sorted.map((sp, idx) => ({
+      ...sp,
+      sort_order: idx + 1,
+    }));
+
+    setStored(STORAGE_KEYS.SPONSORS, updated);
+
+    if (isSupabaseReady()) {
+      try {
+        for (const item of updated) {
+          await supabase.from('sponsors').update({ sort_order: item.sort_order }).eq('id', item.id);
+        }
+      } catch (err) {
+        console.warn('Supabase setSponsorSortOrder error:', err);
+      }
+    }
+
+    broadcastChange();
+    await invalidateServerCache();
+    return updated;
   },
 
   async toggleSponsorActive(id: string, active: boolean): Promise<Sponsor | null> {
@@ -1996,17 +2104,36 @@ export const db = {
           8000
         );
         if (!error && Array.isArray(data)) {
-          const mapped = data.map((d: any) => ({
-            id: d.id,
-            user_id: d.user_id,
-            username: d.delivery_info?.username || 'Kullanıcı',
-            product_id: d.product_id,
-            product_name: d.product_title || 'Ürün',
-            coin_price: d.price_coins || 0,
-            status: d.status || 'completed',
-            delivery_note: typeof d.delivery_info === 'string' ? d.delivery_info : (d.delivery_info?.note || 'Dijital teslimat tamamlandı.'),
-            created_at: d.created_at,
-          })) as StoreOrder[];
+          const mapped = data.map((d: any) => {
+            let parsedInfo: any = {};
+            if (typeof d.delivery_info === 'object' && d.delivery_info !== null) {
+              parsedInfo = d.delivery_info;
+            } else if (typeof d.delivery_info === 'string') {
+              try {
+                parsedInfo = JSON.parse(d.delivery_info);
+              } catch {
+                parsedInfo = { note: d.delivery_info };
+              }
+            }
+
+            return {
+              id: d.id,
+              user_id: d.user_id,
+              username: parsedInfo.username || d.username || 'Kullanıcı',
+              product_id: d.product_id,
+              product_name: d.product_title || d.product_name || 'Ürün',
+              coin_price: d.price_coins || d.coin_price || 0,
+              payout_type: d.payout_type || parsedInfo.payout_type || (parsedInfo.iban ? 'iban' : parsedInfo.trx_address ? 'trx' : undefined),
+              payout_address: d.payout_address || parsedInfo.payout_address || parsedInfo.iban || parsedInfo.trx_address || '',
+              payout_holder_name: d.payout_holder_name || parsedInfo.payout_holder_name || parsedInfo.holder_name || '',
+              payout_bank_name: d.payout_bank_name || parsedInfo.payout_bank_name || '',
+              status: (d.status || 'pending') as 'pending' | 'completed' | 'cancelled' | 'rejected',
+              delivery_note: parsedInfo.note || parsedInfo.delivery_note || d.delivery_note || '',
+              admin_note: d.admin_note || parsedInfo.admin_note || '',
+              created_at: d.created_at,
+              updated_at: d.updated_at,
+            };
+          }) as StoreOrder[];
           setStored(STORAGE_KEYS.STORE_ORDERS, mapped, true);
           return mapped;
         }
@@ -2017,7 +2144,18 @@ export const db = {
     return getStored<StoreOrder[]>(STORAGE_KEYS.STORE_ORDERS, []);
   },
 
-  async purchaseProduct(userId: string, username: string, productId: string, deliveryNote?: string): Promise<{ success: boolean; message: string }> {
+  async purchaseProduct(
+    userId: string,
+    username: string,
+    productId: string,
+    payoutDetails: {
+      payout_type: 'trx' | 'iban';
+      payout_address: string;
+      payout_holder_name?: string;
+      payout_bank_name?: string;
+      delivery_note?: string;
+    }
+  ): Promise<{ success: boolean; message: string }> {
     const profile = (await this.getProfiles()).find((p) => p.id === userId);
     if (!profile) return { success: false, message: 'Kullanıcı profili bulunamadı' };
 
@@ -2025,7 +2163,7 @@ export const db = {
     const product = products.find((p) => p.id === productId);
     if (!product || !product.active) return { success: false, message: 'Ürün bulunamadı veya satışta değil' };
 
-    if (product.stock <= 0) return { success: false, message: 'Ürün tükendi' };
+    if (product.stock <= 0) return { success: false, message: 'Ürün stokları tükenmiştir' };
     if (profile.coin_balance < product.coin_price) {
       return {
         success: false,
@@ -2033,14 +2171,40 @@ export const db = {
       };
     }
 
+    if (!payoutDetails || !payoutDetails.payout_address || !payoutDetails.payout_address.trim()) {
+      return {
+        success: false,
+        message: payoutDetails?.payout_type === 'trx'
+          ? 'Lütfen geçerli bir TRX / TRC-20 cüzdan adresi giriniz.'
+          : 'Lütfen geçerli bir IBAN numarası giriniz.',
+      };
+    }
+
+    if (payoutDetails.payout_type === 'iban' && (!payoutDetails.payout_holder_name || !payoutDetails.payout_holder_name.trim())) {
+      return {
+        success: false,
+        message: 'Lütfen IBAN hesap sahibinin Ad ve Soyadını giriniz.',
+      };
+    }
+
     // Deduct coins directly from Supabase profile
     await this.addCoins(userId, -product.coin_price);
 
     // Decrease stock in Supabase store_products
-    product.stock -= 1;
+    product.stock = Math.max(0, product.stock - 1);
     await this.saveStoreProduct(product);
 
-    // Add order directly to Supabase store_orders
+    // Delivery info bundle
+    const deliveryPayload = {
+      username,
+      payout_type: payoutDetails.payout_type,
+      payout_address: payoutDetails.payout_address.trim(),
+      payout_holder_name: payoutDetails.payout_holder_name?.trim() || '',
+      payout_bank_name: payoutDetails.payout_bank_name?.trim() || '',
+      note: payoutDetails.delivery_note?.trim() || '',
+    };
+
+    // Add order directly to store_orders
     const newOrder: StoreOrder = {
       id: `ord-${Date.now()}`,
       user_id: userId,
@@ -2048,8 +2212,12 @@ export const db = {
       product_id: productId,
       product_name: product.name,
       coin_price: product.coin_price,
-      status: 'completed',
-      delivery_note: deliveryNote || 'Dijital kodunuz profilinize tanımlandı.',
+      payout_type: payoutDetails.payout_type,
+      payout_address: payoutDetails.payout_address.trim(),
+      payout_holder_name: payoutDetails.payout_holder_name?.trim() || '',
+      payout_bank_name: payoutDetails.payout_bank_name?.trim() || '',
+      status: 'pending',
+      delivery_note: payoutDetails.delivery_note?.trim() || '',
       created_at: new Date().toISOString(),
     };
 
@@ -2065,8 +2233,8 @@ export const db = {
           product_id: productId,
           product_title: product.name,
           price_coins: product.coin_price,
-          status: 'completed',
-          delivery_info: JSON.stringify({ username, note: newOrder.delivery_note }),
+          status: 'pending',
+          delivery_info: deliveryPayload,
           created_at: newOrder.created_at,
         });
       } catch (err) {
@@ -2075,13 +2243,71 @@ export const db = {
     }
 
     await this.logAdminAction(
-      `Mağaza Siparişi Alındı: ${product.name}`,
+      `Mağaza Siparişi Alındı (${payoutDetails.payout_type.toUpperCase()}): ${product.name}`,
       'store_order',
       newOrder.id,
-      { user_id: userId, username, product_name: product.name, price: product.coin_price }
+      {
+        user_id: userId,
+        username,
+        product_name: product.name,
+        price: product.coin_price,
+        payout_type: payoutDetails.payout_type,
+        payout_address: payoutDetails.payout_address,
+        payout_holder: payoutDetails.payout_holder_name,
+      }
     );
 
-    return { success: true, message: `Tebrikler! ${product.name} siparişiniz oluşturuldu.` };
+    return {
+      success: true,
+      message: `🎉 Tebrikler! ${product.name} siparişiniz oluşturuldu ve incelenmek üzere kuyruğa alındı.`,
+    };
+  },
+
+  async updateStoreOrderStatus(
+    orderId: string,
+    status: 'pending' | 'completed' | 'cancelled' | 'rejected',
+    adminNote?: string
+  ): Promise<StoreOrder | null> {
+    const orders = await this.getStoreOrders();
+    const idx = orders.findIndex((o) => o.id === orderId);
+    if (idx === -1) return null;
+
+    const currentOrder = orders[idx];
+    orders[idx] = {
+      ...currentOrder,
+      status,
+      admin_note: adminNote !== undefined ? adminNote : currentOrder.admin_note,
+      updated_at: new Date().toISOString(),
+    };
+
+    // If order was cancelled or rejected, optionally refund coins if requested
+    if ((status === 'cancelled' || status === 'rejected') && currentOrder.status === 'pending') {
+      // Refund coins
+      await this.addCoins(currentOrder.user_id, currentOrder.coin_price);
+    }
+
+    setStored(STORAGE_KEYS.STORE_ORDERS, orders);
+
+    if (isSupabaseReady()) {
+      try {
+        await supabase.from('store_orders').update({
+          status,
+          updated_at: new Date().toISOString(),
+        }).eq('id', orderId);
+      } catch (err) {
+        console.warn('Supabase updateStoreOrderStatus error:', err);
+      }
+    }
+
+    await invalidateServerCache();
+    await this.logAdminAction(
+      `Sipariş Durumu Güncellendi (${status.toUpperCase()}): #${orderId}`,
+      'store_order',
+      orderId,
+      { status, admin_note: adminNote }
+    );
+
+    return orders[idx];
   },
 
   // --- Profiles & Auth (Database Authoritative) ---
@@ -2208,6 +2434,123 @@ export const db = {
       return user.coin_balance;
     }
     return 0;
+  },
+
+  async updateUserByAdmin(
+    userId: string,
+    updates: {
+      role?: UserRole;
+      coin_balance?: number;
+      active?: boolean;
+      username?: string;
+    },
+    adminUsername?: string
+  ): Promise<Profile | null> {
+    const profiles = await this.getProfiles();
+    const target = profiles.find((p) => p.id === userId);
+    if (!target) return null;
+
+    const previousRole = target.role;
+    const previousCoins = target.coin_balance;
+    const previousStatus = target.active;
+
+    if (updates.role !== undefined) target.role = updates.role;
+    if (updates.coin_balance !== undefined) target.coin_balance = Math.max(0, updates.coin_balance);
+    if (updates.active !== undefined) target.active = updates.active;
+    if (updates.username !== undefined && updates.username.trim()) target.username = updates.username.trim();
+
+    target.updated_at = new Date().toISOString();
+    await this.saveProfile(target);
+
+    await this.logAdminAction(
+      `Kullanıcı Güncellendi: @${target.username} (${target.role})`,
+      'user_management',
+      target.id,
+      {
+        previous: { role: previousRole, coins: previousCoins, active: previousStatus },
+        updated: { role: target.role, coins: target.coin_balance, active: target.active },
+      },
+      adminUsername
+    );
+
+    return target;
+  },
+
+  async deleteProfile(userId: string, adminUsername?: string): Promise<boolean> {
+    const profiles = await this.getProfiles();
+    const target = profiles.find((p) => p.id === userId);
+    if (!target) return false;
+
+    // 1. Remove from local profiles state
+    const remaining = profiles.filter((p) => p.id !== userId);
+    setStored(STORAGE_KEYS.PROFILES, remaining);
+
+    // 2. Also remove user-specific local stored items
+    try {
+      const allSpins = (await this.getWheelSpins()).filter((s) => s.user_id !== userId);
+      setStored(STORAGE_KEYS.WHEEL_SPINS, allSpins);
+    } catch {
+      // ignore
+    }
+
+    try {
+      const allEntries = (await this.getGiveawayEntries()).filter((e) => e.user_id !== userId);
+      setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, allEntries);
+    } catch {
+      // ignore
+    }
+
+    // 3. Remove from Supabase if connected
+    if (isSupabaseReady()) {
+      try {
+        // Cascade delete related records first if foreign keys are restrictive
+        await Promise.allSettled([
+          supabase.from('wheel_spins').delete().eq('user_id', userId),
+          supabase.from('giveaway_entries').delete().eq('user_id', userId),
+          supabase.from('store_orders').delete().eq('user_id', userId),
+          supabase.from('user_streaks').delete().eq('user_id', userId),
+          supabase.from('daily_bonuses').delete().eq('user_id', userId),
+        ]);
+        await supabase.from('profiles').delete().eq('id', userId);
+      } catch (err) {
+        console.warn('Supabase deleteProfile error:', err);
+      }
+    }
+
+    await this.logAdminAction(
+      `Kullanıcı Hesabı Silindi: @${target.username} (ID: ${userId})`,
+      'user_management',
+      userId,
+      { deleted_user: target },
+      adminUsername
+    );
+
+    await invalidateServerCache();
+    return true;
+  },
+
+  async getUserActivityHistory(userId: string) {
+    const [spins, entries, orders, logs] = await Promise.all([
+      this.getWheelSpins().catch(() => []),
+      this.getGiveawayEntries().catch(() => []),
+      this.getStoreOrders().catch(() => []),
+      this.getAdminLogs().catch(() => []),
+    ]);
+
+    const userSpins = (spins || []).filter((s) => s.user_id === userId);
+    const userEntries = (entries || []).filter((e) => e.user_id === userId);
+    const userOrders = (orders || []).filter((o) => o.user_id === userId);
+    const userLogs = (logs || []).filter(
+      (l) => l.entity_id === userId || (l.details && (l.details as any).user_id === userId)
+    );
+
+    return {
+      spins: userSpins,
+      entries: userEntries,
+      orders: userOrders,
+      logs: userLogs,
+      totalActivityCount: userSpins.length + userEntries.length + userOrders.length + userLogs.length,
+    };
   },
 
   // --- Click Tracking ---

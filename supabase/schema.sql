@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     avatar_url TEXT DEFAULT 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&h=200&q=80',
     coin_balance INTEGER DEFAULT 100,
     role VARCHAR(32) DEFAULT 'user' CHECK (role IN ('user', 'editor', 'admin', 'super_admin')),
-    active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS public.sponsors (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(128) NOT NULL,
     slug VARCHAR(128) UNIQUE NOT NULL,
+    category VARCHAR(32) DEFAULT 'main',
     logo_url TEXT NOT NULL,
     banner_url TEXT,
     description TEXT,
@@ -31,31 +32,28 @@ CREATE TABLE IF NOT EXISTS public.sponsors (
     button_text VARCHAR(64) DEFAULT 'DETAYLARI GÖR',
     rating NUMERIC(3, 1) DEFAULT 4.8,
     featured BOOLEAN DEFAULT FALSE,
-    verified BOOLEAN DEFAULT TRUE,
-    active BOOLEAN DEFAULT TRUE,
+    is_vip BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
     sort_order INTEGER DEFAULT 0,
+    bonus_code VARCHAR(64),
+    badge_text VARCHAR(64),
+    min_deposit VARCHAR(64),
+    withdrawal_speed VARCHAR(64),
+    license VARCHAR(128),
+    rtp_rate VARCHAR(32),
+    online_players VARCHAR(32),
+    stats JSONB DEFAULT '[]'::jsonb,
+    features JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Sponsor Features
-CREATE TABLE IF NOT EXISTS public.sponsor_features (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sponsor_id UUID NOT NULL REFERENCES public.sponsors(id) ON DELETE CASCADE,
-    text TEXT NOT NULL,
-    sort_order INTEGER DEFAULT 0
-);
+-- Indexes for Fast Sorting & Queries
+CREATE INDEX IF NOT EXISTS idx_sponsors_sort_order ON public.sponsors(sort_order ASC);
+CREATE INDEX IF NOT EXISTS idx_sponsors_category ON public.sponsors(category);
+CREATE INDEX IF NOT EXISTS idx_sponsors_is_active ON public.sponsors(is_active);
 
--- 4. Sponsor Dynamic Stats
-CREATE TABLE IF NOT EXISTS public.sponsor_stats (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sponsor_id UUID NOT NULL REFERENCES public.sponsors(id) ON DELETE CASCADE,
-    label VARCHAR(64) NOT NULL,
-    value VARCHAR(64) NOT NULL,
-    sort_order INTEGER DEFAULT 0
-);
-
--- 5. Hero Slides Table
+-- 3. Hero Slides Table
 CREATE TABLE IF NOT EXISTS public.hero_slides (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(255),
@@ -65,28 +63,32 @@ CREATE TABLE IF NOT EXISTS public.hero_slides (
     button_text VARCHAR(64) DEFAULT 'Hemen Katıl',
     target_url TEXT NOT NULL,
     sort_order INTEGER DEFAULT 0,
-    active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
     start_at TIMESTAMPTZ DEFAULT NOW(),
     end_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. Banners Table (Left, Right, Top, Content)
+CREATE INDEX IF NOT EXISTS idx_hero_slides_sort_order ON public.hero_slides(sort_order ASC);
+
+-- 4. Banners Table
 CREATE TABLE IF NOT EXISTS public.banners (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(128) NOT NULL,
     image_url TEXT NOT NULL,
     mobile_image_url TEXT,
     target_url TEXT NOT NULL,
-    position VARCHAR(32) NOT NULL CHECK (position IN ('left', 'right', 'top', 'content')),
-    active BOOLEAN DEFAULT TRUE,
+    position VARCHAR(32) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
     sort_order INTEGER DEFAULT 0,
     start_at TIMESTAMPTZ DEFAULT NOW(),
     end_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7. Social / Community Links
+CREATE INDEX IF NOT EXISTS idx_banners_position ON public.banners(position);
+
+-- 5. Social / Community Links
 CREATE TABLE IF NOT EXISTS public.social_links (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     platform VARCHAR(64) NOT NULL,
@@ -94,23 +96,23 @@ CREATE TABLE IF NOT EXISTS public.social_links (
     subtitle VARCHAR(128),
     url TEXT NOT NULL,
     icon VARCHAR(64) DEFAULT 'Send',
-    active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
     sort_order INTEGER DEFAULT 0
 );
 
--- 8. Wheel Rewards Table
+-- 6. Wheel Rewards Table
 CREATE TABLE IF NOT EXISTS public.wheel_rewards (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(128) NOT NULL,
-    reward_type VARCHAR(64) NOT NULL DEFAULT 'coin' CHECK (reward_type IN ('coin', 'special', 'retry', 'bonus')),
+    reward_type VARCHAR(64) NOT NULL DEFAULT 'coin',
     reward_value INTEGER DEFAULT 0,
     color VARCHAR(32) DEFAULT '#7C3AED',
     probability NUMERIC(5, 2) DEFAULT 10.0,
-    active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
     sort_order INTEGER DEFAULT 0
 );
 
--- 9. Wheel Spins Table (History)
+-- 7. Wheel Spins Table (History)
 CREATE TABLE IF NOT EXISTS public.wheel_spins (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -120,7 +122,7 @@ CREATE TABLE IF NOT EXISTS public.wheel_spins (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 10. Giveaways Table
+-- 8. Giveaways Table
 CREATE TABLE IF NOT EXISTS public.giveaways (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title VARCHAR(255) NOT NULL,
@@ -129,12 +131,12 @@ CREATE TABLE IF NOT EXISTS public.giveaways (
     prize_details TEXT,
     start_at TIMESTAMPTZ DEFAULT NOW(),
     end_at TIMESTAMPTZ NOT NULL,
-    active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
     winner_count INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 11. Giveaway Entries Table
+-- 9. Giveaway Entries Table
 CREATE TABLE IF NOT EXISTS public.giveaway_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     giveaway_id UUID NOT NULL REFERENCES public.giveaways(id) ON DELETE CASCADE,
@@ -143,78 +145,51 @@ CREATE TABLE IF NOT EXISTS public.giveaway_entries (
     UNIQUE(giveaway_id, user_id)
 );
 
--- 11.1 Giveaway Templates Table
-CREATE TABLE IF NOT EXISTS public.giveaway_templates (
-    id VARCHAR(64) PRIMARY KEY,
-    name VARCHAR(128) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    prize_details TEXT NOT NULL,
-    image_url TEXT NOT NULL,
-    description TEXT,
-    duration_days INTEGER DEFAULT 7,
-    badge_color VARCHAR(32) DEFAULT 'violet',
+-- 10. Site Settings Table
+CREATE TABLE IF NOT EXISTS public.site_settings (
+    setting_key VARCHAR(64) PRIMARY KEY,
+    setting_value JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. Admin Logs Table
+CREATE TABLE IF NOT EXISTS public.admin_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    action VARCHAR(128) NOT NULL,
+    module VARCHAR(64),
+    target_id VARCHAR(128),
+    details JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 12. Store Products Table
 CREATE TABLE IF NOT EXISTS public.store_products (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(255) NOT NULL,
+    id VARCHAR(128) PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
     description TEXT,
-    image_url TEXT NOT NULL,
-    coin_price INTEGER NOT NULL,
-    stock INTEGER DEFAULT 100,
-    category VARCHAR(64) DEFAULT 'general',
-    active BOOLEAN DEFAULT TRUE,
+    image_url TEXT,
+    price_coins INTEGER NOT NULL DEFAULT 100,
+    stock INTEGER NOT NULL DEFAULT 50,
+    category VARCHAR(64) DEFAULT 'gift_card',
+    is_active BOOLEAN DEFAULT TRUE,
     sort_order INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 13. Store Orders Table
+-- 13. Store Orders Table (TRX & IBAN Support)
 CREATE TABLE IF NOT EXISTS public.store_orders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(128) PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    product_id UUID NOT NULL REFERENCES public.store_products(id) ON DELETE CASCADE,
-    coin_price INTEGER NOT NULL,
-    status VARCHAR(32) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'cancelled')),
-    delivery_note TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 14. Sponsor Clicks Tracking Table
-CREATE TABLE IF NOT EXISTS public.sponsor_clicks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sponsor_id UUID NOT NULL REFERENCES public.sponsors(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    session_id VARCHAR(128),
-    referrer TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 15. Banner Clicks Tracking Table
-CREATE TABLE IF NOT EXISTS public.banner_clicks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    banner_id UUID NOT NULL REFERENCES public.banners(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    session_id VARCHAR(128),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 16. Site Settings Table (Key-Value)
-CREATE TABLE IF NOT EXISTS public.site_settings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    setting_key VARCHAR(128) UNIQUE NOT NULL,
-    setting_value JSONB NOT NULL,
+    product_id VARCHAR(128),
+    product_title VARCHAR(255),
+    price_coins INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(32) DEFAULT 'pending',
+    delivery_info JSONB DEFAULT '{}'::jsonb,
+    admin_note TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 17. Admin Audit Logs
-CREATE TABLE IF NOT EXISTS public.admin_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    admin_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    action VARCHAR(128) NOT NULL,
-    entity_type VARCHAR(64) NOT NULL,
-    entity_id UUID,
-    details JSONB,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE INDEX IF NOT EXISTS idx_store_orders_user ON public.store_orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_store_orders_status ON public.store_orders(status);
+

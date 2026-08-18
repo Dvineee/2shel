@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   TrendingUp,
   Sparkles,
+  Users,
 } from 'lucide-react';
 import { formatCoin } from '../../lib/utils';
 
@@ -21,6 +22,14 @@ export const AdminDashboard: React.FC = () => {
   const totalClicks = sponsors.reduce((acc, s) => acc + (s.clicks_count || 0), 0);
 
   const kpis = [
+    {
+      title: 'Kullanıcı & Üyeler',
+      value: 'Tüm Üyeler',
+      sub: 'Yetkiler, bakiyeler ve aktivite logları',
+      icon: Users,
+      color: 'from-indigo-600 to-violet-600',
+      to: '/admin/users',
+    },
     {
       title: 'Kayıtlı Sponsorlar',
       value: sponsors.length,
@@ -36,14 +45,6 @@ export const AdminDashboard: React.FC = () => {
       icon: MousePointerClick,
       color: 'from-emerald-500 to-teal-600',
       to: '/admin/sponsors',
-    },
-    {
-      title: 'Banner & Sliderlar',
-      value: banners.length + heroSlides.length,
-      sub: `${heroSlides.length} Hero, ${banners.length} Dikey Reklam`,
-      icon: Image,
-      color: 'from-blue-600 to-indigo-600',
-      to: '/admin/banners',
     },
     {
       title: 'Aktif Çekilişler',

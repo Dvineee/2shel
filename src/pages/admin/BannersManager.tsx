@@ -4,6 +4,7 @@ import { db } from '../../lib/db';
 import { HeroSlide, Banner, BannerPosition } from '../../types';
 import { Image, Plus, Edit2, Trash2, X, ExternalLink, Sparkles, Layout, Eye } from 'lucide-react';
 import { toast } from 'sonner';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
 
 export const BannersManager: React.FC = () => {
   const { heroSlides, banners, refreshAll } = useData();
@@ -42,34 +43,34 @@ export const BannersManager: React.FC = () => {
   const openNewSlide = () => {
     setIsNewSlide(true);
     setEditingSlide({});
-    setSlideTitle('Haftalık 500.000 TL Turnuva');
-    setSlideSubtitle('Katılmak için giriş yap ve yarışmaya dahil ol!');
-    setSlideImage('https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&h=500&q=80');
+    setSlideTitle('');
+    setSlideSubtitle('');
+    setSlideImage('https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1400&h=500&q=80');
     setSlideTargetUrl('/giveaways');
-    setSlideButtonText('Hemen Katıl');
+    setSlideButtonText('');
     setSlideActive(true);
   };
 
   const openEditSlide = (s: HeroSlide) => {
     setIsNewSlide(false);
     setEditingSlide(s);
-    setSlideTitle(s.title);
+    setSlideTitle(s.title || '');
     setSlideSubtitle(s.subtitle || '');
     setSlideImage(s.desktop_image);
     setSlideTargetUrl(s.target_url);
-    setSlideButtonText(s.button_text || 'Hemen Katıl');
+    setSlideButtonText(s.button_text || '');
     setSlideActive(s.active);
   };
 
   const handleSaveSlide = async (e: React.FormEvent) => {
     e.preventDefault();
     const data: Partial<HeroSlide> = {
-      title: slideTitle,
-      subtitle: slideSubtitle,
-      desktop_image: slideImage,
-      mobile_image: slideImage,
-      target_url: slideTargetUrl,
-      button_text: slideButtonText,
+      title: slideTitle.trim() || undefined,
+      subtitle: slideSubtitle.trim() || undefined,
+      desktop_image: slideImage.trim(),
+      mobile_image: slideImage.trim(),
+      target_url: slideTargetUrl.trim() || '/giveaways',
+      button_text: slideButtonText.trim() || undefined,
       active: slideActive,
       sort_order: 1,
     };
@@ -386,28 +387,41 @@ export const BannersManager: React.FC = () => {
                 <div className="relative h-44 w-full bg-violet-950/40">
                   <img
                     src={slide.desktop_image}
-                    alt={slide.title}
+                    alt={slide.title || 'Hero Banner'}
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#120b24] via-transparent to-black/30" />
-                  <span
-                    className={`absolute top-3 left-3 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      slide.active
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        : 'bg-slate-700 text-slate-400'
-                    }`}
-                  >
-                    {slide.active ? 'Aktif' : 'Pasif'}
-                  </span>
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        slide.active
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-slate-700 text-slate-400'
+                      }`}
+                    >
+                      {slide.active ? 'Aktif' : 'Pasif'}
+                    </span>
+                    {!slide.title && (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Yazısız Sade Afiş
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="p-4 flex flex-col flex-1">
-                  <h3 className="text-sm font-bold text-white line-clamp-1">{slide.title}</h3>
-                  <p className="text-xs text-slate-400 mt-1 line-clamp-2">{slide.subtitle}</p>
+                  <h3 className="text-sm font-bold text-white line-clamp-1">
+                    {slide.title || <span className="text-slate-400 italic">Yazısız Görsel Afiş (Sadece Banner)</span>}
+                  </h3>
+                  {slide.subtitle ? (
+                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{slide.subtitle}</p>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 mt-1">Yazı içermeyen doğrudan tıklanabilir görsel.</p>
+                  )}
 
                   <div className="mt-4 pt-3 border-t border-violet-900/30 flex items-center justify-between">
                     <span className="text-[11px] text-violet-400 truncate max-w-[200px]">
-                      Hedef: {slide.target_url}
+                      Hedef: {slide.target_url || '/'}
                     </span>
                     <div className="flex items-center gap-2">
                       <button
@@ -474,49 +488,35 @@ export const BannersManager: React.FC = () => {
                 </p>
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Görsel Linki (URL) *</label>
-                <input
-                  type="text"
+              <div className="space-y-2">
+                <ImageUploadField
+                  id="banner-image-upload"
+                  label="Banner Görseli"
                   required
                   value={bannerImage}
-                  onChange={(e) => setBannerImage(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white"
-                  placeholder="https://... (PNG/JPG/WEBP)"
+                  onChange={setBannerImage}
+                  helpText="PNG, JPG veya WEBP görseli yükleyin veya URL yapıştırın."
+                  aspectHint="Dikey afişler için önerilen oran: 300x800px"
+                  maxDimension={1200}
+                  previewClassName="h-16 w-12"
                 />
 
                 {/* Quick Presets */}
-                <div className="mt-2">
-                  <span className="text-[10px] text-slate-400 block mb-1">Hızlı Hazır Görseller:</span>
+                <div className="pt-1">
+                  <span className="text-[10px] text-slate-400 block mb-1">Hızlı Hazır Dikey Görseller:</span>
                   <div className="flex flex-wrap gap-1.5">
                     {sampleVerticalImages.map((s, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => setBannerImage(s.url)}
-                        className="px-2 py-1 rounded-lg bg-violet-950/60 hover:bg-violet-800/60 border border-violet-800/30 text-[10px] text-violet-300"
+                        className="px-2 py-1 rounded-lg bg-violet-950/60 hover:bg-violet-800/60 border border-violet-800/30 text-[10px] text-violet-300 cursor-pointer"
                       >
                         {s.label}
                       </button>
                     ))}
                   </div>
                 </div>
-
-                {/* Live Preview */}
-                {bannerImage && (
-                  <div className="mt-2.5 p-2 rounded-2xl bg-black/40 border border-violet-900/40 flex items-center gap-3">
-                    <img
-                      src={bannerImage}
-                      alt="Önizleme"
-                      className="w-12 h-16 object-cover rounded-xl border border-violet-700/50"
-                      onError={(e) => ((e.target as any).src = 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=300&h=800&q=80')}
-                    />
-                    <div className="text-[11px] text-slate-300">
-                      <p className="font-bold text-white">Görsel Önizleme</p>
-                      <p className="text-[10px] text-emerald-400">Yükleme başarılı</p>
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div>
@@ -574,36 +574,54 @@ export const BannersManager: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveSlide} className="space-y-3 text-xs">
+            <form onSubmit={handleSaveSlide} className="space-y-3.5 text-xs">
+              <div className="p-3 rounded-2xl bg-violet-950/40 border border-violet-800/30 text-slate-300 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  Yazısız Sade Afiş Desteği:
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Başlık, açıklama ve buton alanlarını boş bırakırsanız manşet alanı tamamen yazısız, temiz görsel afiş olarak yayınlanır ve tıklandığında hedef linke yönlendirir.
+                </p>
+              </div>
+
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Başlık *</label>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Başlık <span className="text-slate-500 font-normal">(İsteğe Bağlı - Yazısız için boş bırakın)</span>
+                </label>
                 <input
                   type="text"
-                  required
                   value={slideTitle}
                   onChange={(e) => setSlideTitle(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white"
+                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white placeholder:text-slate-600"
+                  placeholder="Örn: Haftalık 500.000 TL Turnuva (veya boş)"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Alt Açıklama</label>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Alt Açıklama <span className="text-slate-500 font-normal">(İsteğe Bağlı)</span>
+                </label>
                 <input
                   type="text"
                   value={slideSubtitle}
                   onChange={(e) => setSlideSubtitle(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white"
+                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white placeholder:text-slate-600"
+                  placeholder="Örn: Katılmak için hemen giriş yapın (veya boş)"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Görsel URL *</label>
-                <input
-                  type="text"
+                <ImageUploadField
+                  id="hero-slide-image-upload"
+                  label="Manşet Afiş Görseli"
                   required
                   value={slideImage}
-                  onChange={(e) => setSlideImage(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white"
+                  onChange={setSlideImage}
+                  helpText="PNG, JPG veya WEBP afiş görseli yükleyin veya URL yapıştırın."
+                  aspectHint="Önerilen Boyut: 1400x500px"
+                  maxDimension={1600}
+                  previewClassName="h-14 w-32"
                 />
               </div>
 
@@ -616,39 +634,44 @@ export const BannersManager: React.FC = () => {
                     value={slideTargetUrl}
                     onChange={(e) => setSlideTargetUrl(e.target.value)}
                     className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white"
+                    placeholder="/giveaways veya https://..."
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Buton Metni</label>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Buton Metni <span className="text-slate-500 font-normal">(İsteğe Bağlı)</span>
+                  </label>
                   <input
                     type="text"
                     value={slideButtonText}
                     onChange={(e) => setSlideButtonText(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white"
+                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white placeholder:text-slate-600"
+                    placeholder="Örn: Hemen Katıl (veya boş)"
                   />
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 pt-2 text-white font-medium cursor-pointer">
+              <label className="flex items-center gap-2 pt-1 text-white font-medium cursor-pointer">
                 <input
                   type="checkbox"
                   checked={slideActive}
                   onChange={(e) => setSlideActive(e.target.checked)}
+                  className="w-4 h-4 rounded text-violet-600 focus:ring-violet-500"
                 />
-                Aktif (Yayında Göster)
+                <span>Aktif (Yayında Göster)</span>
               </label>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-violet-900/30">
                 <button
                   type="button"
                   onClick={() => setEditingSlide(null)}
-                  className="px-4 py-2 rounded-xl border border-violet-800 text-slate-300"
+                  className="px-4 py-2 rounded-xl border border-violet-800 text-slate-300 hover:bg-white/5 cursor-pointer"
                 >
                   İptal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold"
+                  className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold cursor-pointer shadow-lg shadow-violet-600/30"
                 >
                   Kaydet
                 </button>

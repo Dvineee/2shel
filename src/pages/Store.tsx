@@ -1,9 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/db';
-import { StoreProduct } from '../types';
-import { ShoppingBag, Coins, Check, AlertCircle, Sparkles, Package } from 'lucide-react';
+import { StoreProduct, StoreOrder, PayoutType } from '../types';
+import {
+  ShoppingBag,
+  Coins,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  XCircle,
+  CreditCard,
+  Wallet,
+  Building,
+  UserCheck,
+  FileText,
+  Copy,
+  Check,
+  History,
+} from 'lucide-react';
 import { formatCoin } from '../lib/utils';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
@@ -13,8 +29,52 @@ export const StorePage: React.FC = () => {
   const { user, refreshProfile } = useAuth();
 
   const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null);
+  const [payoutType, setPayoutType] = useState<PayoutType>('trx');
+  const [trxAddress, setTrxAddress] = useState('');
+  const [ibanNumber, setIbanNumber] = useState('');
+  const [accountHolder, setAccountHolder] = useState('');
+  const [bankName, setBankName] = useState('');
   const [deliveryNote, setDeliveryNote] = useState('');
   const [purchasing, setPurchasing] = useState(false);
+
+  // User's own orders history
+  const [myOrders, setMyOrders] = useState<StoreOrder[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+
+  const loadMyOrders = async () => {
+    if (!user) return;
+    setLoadingOrders(true);
+    try {
+      const allOrders = await db.getStoreOrders();
+      const userOrders = allOrders.filter((o) => o.user_id === user.id);
+      setMyOrders(userOrders);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadMyOrders();
+    }
+  }, [user]);
+
+  const handleOpenPurchase = (product: StoreProduct) => {
+    if (!user) {
+      toast.error('Mağazadan alışveriş yapabilmek için lütfen giriş yapınız.');
+      return;
+    }
+
+    if (user.coin_balance < product.coin_price) {
+      toast.error(`Yetersiz bakiye! Bu ürün için ${product.coin_price} Coin gerekiyor.`);
+      return;
+    }
+
+    setSelectedProduct(product);
+  };
 
   const handlePurchase = async () => {
     if (!user || !selectedProduct) return;
@@ -24,31 +84,70 @@ export const StorePage: React.FC = () => {
       return;
     }
 
+    // Validation
+    if (payoutType === 'trx') {
+      const cleanTrx = trxAddress.trim();
+      if (!cleanTrx) {
+        toast.error('Lütfen geçerli bir TRX / TRC-20 cüzdan adresi giriniz.');
+        return;
+      }
+      if (cleanTrx.length < 20) {
+        toast.error('TRX / TRC-20 cüzdan adresi eksik veya geçersiz görünüyor.');
+        return;
+      }
+    } else {
+      const cleanIban = ibanNumber.trim().replace(/\s+/g, '');
+      const cleanHolder = accountHolder.trim();
+
+      if (!cleanIban) {
+        toast.error('Lütfen IBAN numaranızı eksiksiz giriniz.');
+        return;
+      }
+      if (!cleanHolder) {
+        toast.error('Lütfen IBAN hesap sahibinin Ad ve Soyadını giriniz.');
+        return;
+      }
+      if (cleanIban.length < 15) {
+        toast.error('Girdiğiniz IBAN numarası çok kısa veya geçersiz.');
+        return;
+      }
+    }
+
     setPurchasing(true);
     try {
-      const res = await db.purchaseProduct(
-        user.id,
-        user.username,
-        selectedProduct.id,
-        deliveryNote
-      );
+      const payoutAddress = payoutType === 'trx' ? trxAddress.trim() : ibanNumber.trim();
+      const res = await db.purchaseProduct(user.id, user.username, selectedProduct.id, {
+        payout_type: payoutType,
+        payout_address: payoutAddress,
+        payout_holder_name: payoutType === 'iban' ? accountHolder.trim() : undefined,
+        payout_bank_name: payoutType === 'iban' && bankName.trim() ? bankName.trim() : undefined,
+        delivery_note: deliveryNote.trim(),
+      });
 
       if (res.success) {
         toast.success(res.message);
         confetti({
-          particleCount: 100,
-          spread: 70,
+          particleCount: 120,
+          spread: 80,
           origin: { y: 0.6 },
         });
+
+        // Reset form
         setSelectedProduct(null);
+        setTrxAddress('');
+        setIbanNumber('');
+        setAccountHolder('');
+        setBankName('');
         setDeliveryNote('');
+
         await refreshProfile();
         await refreshAll();
+        await loadMyOrders();
       } else {
         toast.error(res.message);
       }
     } catch {
-      toast.error('Satın alma işlemi tamamlanamadı');
+      toast.error('Satın alma işlemi sırasında bir hata oluştu');
     } finally {
       setPurchasing(false);
     }
@@ -57,47 +156,151 @@ export const StorePage: React.FC = () => {
   return (
     <div className="space-y-8 animate-in fade-in duration-300 pb-12">
       {/* Header Banner */}
-      <div className="p-6 md:p-8 rounded-3xl bg-gradient-to-r from-amber-950/60 via-[#120b24] to-[#070510] border border-amber-800/30 flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+      <div className="p-6 md:p-8 rounded-3xl bg-gradient-to-r from-amber-950/60 via-[#120b24] to-[#070510] border border-amber-800/30 flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden shadow-2xl">
         <div className="max-w-xl space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30">
             <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
-            ÖZEL DİJİTAL MAĞAZA
+            ÖZEL DİJİTAL MAĞAZA & ÖDÜL MERKEZİ
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
             SponsorHub Coin Mağazası
           </h1>
           <p className="text-xs sm:text-sm text-slate-300">
-            Topladığınız coinlerle Steam cüzdan kodları, Trendyol alışveriş çekleri ve VIP üyelikler satın alın.
+            Kazandığınız coinleri nakite veya dijital hediyelere dönüştürün. Siparişleriniz TRX (TRC-20) veya TR IBAN hesabınıza güvenle teslim edilir.
           </p>
         </div>
 
         {user && (
-          <div className="p-4 rounded-2xl bg-[#0d0918] border border-amber-500/30 text-right flex md:flex-col items-center md:items-end justify-between">
-            <span className="text-xs text-slate-400">Kullanılabilir Bakiyeniz</span>
-            <div className="flex items-center gap-2 text-xl sm:text-2xl font-black text-amber-400 mt-1">
-              <Coins className="w-6 h-6" />
-              <span>{formatCoin(user.coin_balance)}</span>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="p-4 rounded-2xl bg-[#0d0918]/90 border border-amber-500/30 text-right flex sm:flex-col items-center sm:items-end justify-between shadow-inner">
+              <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Kullanılabilir Bakiye</span>
+              <div className="flex items-center gap-2 text-xl sm:text-2xl font-black text-amber-400 mt-1">
+                <Coins className="w-6 h-6 text-amber-400 animate-pulse" />
+                <span>{formatCoin(user.coin_balance)}</span>
+              </div>
             </div>
+
+            <button
+              onClick={() => {
+                setShowHistory(!showHistory);
+                if (!showHistory) loadMyOrders();
+              }}
+              className={`px-4 py-3 rounded-2xl border text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                showHistory
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow-lg shadow-amber-500/30'
+                  : 'bg-violet-950/60 border-violet-800/40 text-violet-200 hover:text-white hover:bg-violet-900/60'
+              }`}
+            >
+              <History className="w-4 h-4" />
+              <span>Siparişlerim ({myOrders.length})</span>
+            </button>
           </div>
         )}
       </div>
+
+      {/* User Orders History Section (Collapsible) */}
+      {showHistory && user && (
+        <div className="p-5 sm:p-6 rounded-3xl bg-[#120b24] border border-amber-500/30 shadow-2xl space-y-4 animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center justify-between border-b border-violet-900/40 pb-3">
+            <div className="flex items-center gap-2">
+              <History className="w-5 h-5 text-amber-400" />
+              <h2 className="text-base font-black text-white">Geçmiş Satın Alımlarım</h2>
+            </div>
+            <button
+              onClick={() => setShowHistory(false)}
+              className="text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              Kapat
+            </button>
+          </div>
+
+          {loadingOrders ? (
+            <div className="py-8 text-center text-xs text-slate-400 animate-pulse">
+              Siparişleriniz yükleniyor...
+            </div>
+          ) : myOrders.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">
+              Henüz verilmiş bir siparişiniz bulunmamaktadır.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {myOrders.map((ord) => {
+                const isCompleted = ord.status === 'completed';
+                const isCancelled = ord.status === 'cancelled' || ord.status === 'rejected';
+                const isPending = ord.status === 'pending';
+
+                return (
+                  <div
+                    key={ord.id}
+                    className="p-4 rounded-2xl bg-[#090614] border border-violet-800/30 flex flex-col justify-between gap-3 hover:border-violet-600/50 transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="text-sm font-bold text-white">{ord.product_name}</h4>
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+                          <span>{new Date(ord.created_at).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span>•</span>
+                          <span className="font-bold text-amber-400">{formatCoin(ord.coin_price)} Coin</span>
+                        </div>
+                      </div>
+
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase flex items-center gap-1 shrink-0 ${
+                          isCompleted
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : isCancelled
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        }`}
+                      >
+                        {isCompleted && <CheckCircle2 className="w-3 h-3" />}
+                        {isCancelled && <XCircle className="w-3 h-3" />}
+                        {isPending && <Clock className="w-3 h-3" />}
+                        <span>{isCompleted ? 'Teslim Edildi' : isCancelled ? 'İptal / Reddedildi' : 'İnceleniyor'}</span>
+                      </span>
+                    </div>
+
+                    {/* Delivery & Payout Info */}
+                    <div className="p-2.5 rounded-xl bg-violet-950/40 border border-violet-900/30 text-[11px] space-y-1">
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span className="font-semibold">Ödeme / Teslimat:</span>
+                        <span className="font-bold text-violet-300 uppercase">
+                          {ord.payout_type === 'trx' ? '⚡ TRX / TRC-20' : '🏦 Banka IBAN'}
+                        </span>
+                      </div>
+                      <div className="font-mono text-slate-300 break-all text-[10px]">
+                        {ord.payout_address}
+                      </div>
+                      {ord.payout_holder_name && (
+                        <div className="text-slate-400 text-[10px]">
+                          Hesap Sahibi: <span className="text-white font-medium">{ord.payout_holder_name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Products Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {storeProducts.map((product) => (
           <div
             key={product.id}
-            className="rounded-3xl bg-[#120b24] border border-violet-800/30 hover:border-amber-500/60 p-4 flex flex-col transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-amber-900/20 group"
+            className="rounded-3xl bg-[#120b24] border border-violet-800/30 hover:border-amber-500/60 p-4 flex flex-col justify-between transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl hover:shadow-amber-900/20 group"
           >
             {/* Image Box */}
-            <div className="relative h-40 w-full rounded-2xl overflow-hidden bg-violet-950/40 mb-3.5">
+            <div className="relative h-44 w-full rounded-2xl overflow-hidden bg-violet-950/40 mb-3.5">
               <img
                 src={product.image_url}
                 alt={product.name}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 loading="lazy"
               />
-              <span className="absolute top-2 right-2 px-2.5 py-0.5 rounded-full bg-black/70 backdrop-blur-sm text-[10px] font-bold text-slate-300 border border-white/10">
+              <span className="absolute top-2 right-2 px-2.5 py-0.5 rounded-full bg-black/80 backdrop-blur-sm text-[10px] font-bold text-slate-300 border border-white/10">
                 Stok: {product.stock}
               </span>
             </div>
@@ -114,16 +317,16 @@ export const StorePage: React.FC = () => {
               {/* Price & Action */}
               <div className="mt-4 pt-3 border-t border-violet-900/30 flex items-center justify-between gap-2">
                 <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Fiyat</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Tutar</span>
                   <span className="text-sm font-black text-amber-400">
                     {formatCoin(product.coin_price)} Coin
                   </span>
                 </div>
 
                 <button
-                  onClick={() => setSelectedProduct(product)}
+                  onClick={() => handleOpenPurchase(product)}
                   disabled={product.stock <= 0}
-                  className={`px-4 py-2 rounded-xl font-bold text-xs shadow-md transition-all ${
+                  className={`px-4 py-2 rounded-xl font-black text-xs shadow-md transition-all cursor-pointer ${
                     product.stock <= 0
                       ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                       : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 shadow-amber-500/30 hover:scale-105'
@@ -137,47 +340,190 @@ export const StorePage: React.FC = () => {
         ))}
       </div>
 
-      {/* Purchase Confirmation Modal */}
+      {/* Purchase Confirmation & Payout Details Modal */}
       {selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="max-w-md w-full rounded-3xl bg-[#120b24] border border-amber-500/40 p-6 shadow-2xl space-y-4">
-            <h3 className="text-lg font-black text-white flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-amber-400" />
-              Siparişi Onayla
-            </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
+          <div className="max-w-lg w-full rounded-3xl bg-[#120b24] border border-amber-500/40 p-6 shadow-2xl space-y-5 my-8">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-violet-900/40 pb-3">
+              <h3 className="text-lg font-black text-white flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+                <span>Satın Alma & Teslimat Bilgileri</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedProduct(null)}
+                className="w-8 h-8 rounded-xl bg-violet-950/60 hover:bg-violet-800 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
 
-            <div className="flex items-center gap-3 p-3 rounded-2xl bg-violet-950/40 border border-violet-900/40">
+            {/* Product Summary */}
+            <div className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-violet-950/50 border border-violet-900/40 shadow-inner">
               <img
                 src={selectedProduct.image_url}
                 alt={selectedProduct.name}
-                className="w-16 h-16 rounded-xl object-cover"
+                className="w-16 h-16 rounded-xl object-cover shrink-0 border border-violet-800/40"
               />
-              <div>
-                <h4 className="text-sm font-bold text-white">{selectedProduct.name}</h4>
-                <p className="text-xs text-amber-400 font-bold mt-0.5">
-                  Tutar: {formatCoin(selectedProduct.coin_price)} Coin
-                </p>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-bold text-white truncate">{selectedProduct.name}</h4>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-amber-400 font-black flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5" />
+                    {formatCoin(selectedProduct.coin_price)} Coin
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    (Kalan: {formatCoin((user?.coin_balance || 0) - selectedProduct.coin_price)} Coin)
+                  </span>
+                </div>
               </div>
             </div>
 
+            {/* Payout / Delivery Method Selector (Mandatory Requirement) */}
+            <div className="space-y-3">
+              <label className="block text-xs font-black text-amber-300 uppercase tracking-wider">
+                1. Teslimat / Ödeme Yöntemini Seçiniz <span className="text-rose-400">*</span>
+              </label>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPayoutType('trx')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                    payoutType === 'trx'
+                      ? 'bg-gradient-to-br from-purple-900/50 to-violet-950/80 border-purple-500 text-white shadow-lg shadow-purple-900/30'
+                      : 'bg-[#090614] border-violet-900/40 text-slate-400 hover:border-violet-700 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-black text-xs text-purple-300">
+                      <Wallet className="w-4 h-4 text-purple-400" />
+                      <span>TRX / USDT</span>
+                    </div>
+                    {payoutType === 'trx' && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
+                  </div>
+                  <span className="text-[10px] text-slate-400">TRC-20 Kripto Cüzdan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPayoutType('iban')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                    payoutType === 'iban'
+                      ? 'bg-gradient-to-br from-emerald-950/60 to-teal-950/80 border-emerald-500 text-white shadow-lg shadow-emerald-900/30'
+                      : 'bg-[#090614] border-violet-900/40 text-slate-400 hover:border-violet-700 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-black text-xs text-emerald-300">
+                      <Building className="w-4 h-4 text-emerald-400" />
+                      <span>BANKA IBAN</span>
+                    </div>
+                    {payoutType === 'iban' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                  </div>
+                  <span className="text-[10px] text-slate-400">TR Banka Havalesi / FAST</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mandatory Payout Fields based on Selection */}
+            <div className="space-y-3 p-4 rounded-2xl bg-[#090614] border border-violet-800/40">
+              {payoutType === 'trx' ? (
+                <div>
+                  <label className="block text-xs font-bold text-white mb-1.5 flex items-center justify-between">
+                    <span>TRX / TRC-20 Cüzdan Adresiniz</span>
+                    <span className="text-[10px] text-rose-400 font-bold">* Zorunlu Alan</span>
+                  </label>
+                  <div className="relative">
+                    <Wallet className="w-4 h-4 text-purple-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      required
+                      value={trxAddress}
+                      onChange={(e) => setTrxAddress(e.target.value)}
+                      placeholder="Örn: TYDzpheaF27xHsj... (TRC-20 Cüzdan Adresi)"
+                      className="w-full pl-9 pr-4 py-2.5 text-xs font-mono rounded-xl bg-[#120b24] border border-violet-700/60 text-white placeholder-slate-500 focus:outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5">
+                    Ödemeniz Tron (TRC-20) ağı üzerinden bu cüzdan adresine gönderilecektir. Lütfen adresi doğru girdiğinizden emin olunuz.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-white mb-1.5 flex items-center justify-between">
+                      <span>IBAN Numarası</span>
+                      <span className="text-[10px] text-rose-400 font-bold">* Zorunlu Alan</span>
+                    </label>
+                    <div className="relative">
+                      <CreditCard className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        value={ibanNumber}
+                        onChange={(e) => setIbanNumber(e.target.value)}
+                        placeholder="TR00 0000 0000 0000 0000 0000 00"
+                        className="w-full pl-9 pr-4 py-2.5 text-xs font-mono uppercase rounded-xl bg-[#120b24] border border-violet-700/60 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-white mb-1.5 flex items-center justify-between">
+                      <span>Hesap Sahibi Adı ve Soyadı</span>
+                      <span className="text-[10px] text-rose-400 font-bold">* Zorunlu Alan</span>
+                    </label>
+                    <div className="relative">
+                      <UserCheck className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        value={accountHolder}
+                        onChange={(e) => setAccountHolder(e.target.value)}
+                        placeholder="Ad Soyad (Banka hesabında kayıtlı olan isim)"
+                        className="w-full pl-9 pr-4 py-2.5 text-xs rounded-xl bg-[#120b24] border border-violet-700/60 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">
+                      <span>Banka Adı (Opsiyonel)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      placeholder="Örn: Garanti BBVA, Ziraat, Enpara..."
+                      className="w-full px-3.5 py-2 text-xs rounded-xl bg-[#120b24] border border-violet-800/40 text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Delivery Note (Optional) */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Teslimat Notu / E-posta veya Telegram ID (Opsiyonel)
+                Ek Sipariş / Teslimat Notu (Opsiyonel)
               </label>
               <textarea
                 value={deliveryNote}
                 onChange={(e) => setDeliveryNote(e.target.value)}
-                placeholder="Örn: Kodumu telegram @kullaniciadi adresime iletiniz..."
+                placeholder="Örn: Telegram @kullaniciadi adresimden de teyit edebilirsiniz..."
                 rows={2}
-                className="w-full p-3 text-xs rounded-xl bg-[#0d0918] border border-violet-800/30 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                className="w-full p-3 text-xs rounded-xl bg-[#090614] border border-violet-800/40 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
               />
             </div>
 
+            {/* Actions */}
             <div className="flex items-center gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setSelectedProduct(null)}
-                className="flex-1 py-2.5 rounded-xl border border-violet-800 text-slate-300 hover:bg-violet-900/30 text-xs font-bold transition-colors"
+                className="flex-1 py-3 rounded-xl border border-violet-800 text-slate-300 hover:bg-violet-900/30 text-xs font-bold transition-colors cursor-pointer"
               >
                 Vazgeç
               </button>
@@ -185,9 +531,9 @@ export const StorePage: React.FC = () => {
                 type="button"
                 onClick={handlePurchase}
                 disabled={purchasing}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/30 hover:scale-105 transition-all"
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/30 hover:scale-[1.02] transition-all cursor-pointer disabled:opacity-50"
               >
-                {purchasing ? 'İşleniyor...' : 'Onayla & Satın Al'}
+                {purchasing ? 'İşleniyor...' : 'Siparişi Onayla & Satın Al'}
               </button>
             </div>
           </div>
