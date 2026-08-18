@@ -1,5 +1,7 @@
 import {
   Sponsor,
+  SponsorStat,
+  SponsorFeature,
   SponsorCategory,
   HeroSlide,
   Banner,
@@ -53,6 +55,7 @@ const STORAGE_KEYS = {
   ADMIN_LOGS: 'sponsorhub_admin_logs_v1',
   SPONSOR_CLICKS: 'sponsorhub_sponsor_clicks_v1',
   BANNER_CLICKS: 'sponsorhub_banner_clicks_v1',
+  DELETED_SPONSORS: 'sponsorhub_deleted_sponsors_v1',
 };
 
 // Local cache sync helper
@@ -192,37 +195,111 @@ export const db = {
 
     let mappedSponsors: Sponsor[] = [];
     if (Array.isArray(sponsors) && sponsors.length > 0) {
+      const existingLocalSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
+      const localMap = new Map<string, Sponsor>();
+      existingLocalSponsors.forEach((s) => {
+        if (s.id) localMap.set(s.id, s);
+        if (s.slug) localMap.set(s.slug, s);
+        if (s.name) localMap.set(s.name.toLowerCase().trim(), s);
+      });
+
       mappedSponsors = sponsors.map((d: any) => {
         const cat = getSponsorCategory(d);
+        const idStr = String(d.id);
+        const nameStr = (d.name || d.title || 'Sponsor').trim();
+        const slugStr = d.slug || (nameStr ? nameStr.toLowerCase().replace(/[^a-z0-9]+/g, '-') : idStr);
+        const local = localMap.get(idStr) || localMap.get(slugStr) || localMap.get(nameStr.toLowerCase());
+
+        // Parse stats: if database returned array with content, use it. Otherwise fallback to local customized stats, else defaults.
+        let resolvedStats: SponsorStat[] = [
+          { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
+          { id: `stat-2`, label: 'Deneme Bonusu', value: '250 TL', sort_order: 2 },
+          { id: `stat-3`, label: 'Kayıp Bonusu', value: '%20', sort_order: 3 },
+        ];
+        if (Array.isArray(d.stats) && d.stats.length > 0) {
+          resolvedStats = d.stats;
+        } else if (typeof d.stats === 'string') {
+          try {
+            const parsed = JSON.parse(d.stats);
+            if (Array.isArray(parsed) && parsed.length > 0) resolvedStats = parsed;
+          } catch {
+            // ignore
+          }
+        } else if (local?.stats && Array.isArray(local.stats) && local.stats.length > 0) {
+          resolvedStats = local.stats;
+        }
+
+        // Parse features
+        let resolvedFeatures: SponsorFeature[] = [
+          { id: `feat-1`, text: 'Anında Çekim İmkanı', sort_order: 1 },
+          { id: `feat-2`, text: '7/24 Türkçe Canlı Destek', sort_order: 2 },
+          { id: `feat-3`, text: 'Lisanslı & Güvenilir Altyapı', sort_order: 3 },
+        ];
+        if (Array.isArray(d.features) && d.features.length > 0) {
+          resolvedFeatures = d.features;
+        } else if (typeof d.features === 'string') {
+          try {
+            const parsed = JSON.parse(d.features);
+            if (Array.isArray(parsed) && parsed.length > 0) resolvedFeatures = parsed;
+          } catch {
+            // ignore
+          }
+        } else if (local?.features && Array.isArray(local.features) && local.features.length > 0) {
+          resolvedFeatures = local.features;
+        }
+
         return {
           ...d,
-          id: String(d.id),
-          name: d.name || d.title || 'Sponsor',
-          slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : String(d.id)),
-          logo_url: d.logo_url || d.logo || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80',
-          banner_url: d.banner_url || d.banner || '',
-          bonus_text: d.bonus_text || d.bonus || d.bonus_code || '',
-          description: d.full_review || d.description || d.desc || '',
-          short_description: d.short_desc || d.short_description || '',
-          website_url: d.direct_url || d.website_url || d.link || d.url || 'https://example.com',
-          button_text: d.button_text || d.btn_text || 'DETAYLARI GÖR',
-          rating: Number(d.rating || d.score || 4.8),
+          id: idStr,
+          name: nameStr,
+          slug: slugStr,
+          logo_url: d.logo_url || d.logo || local?.logo_url || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80',
+          banner_url: d.banner_url || d.banner || local?.banner_url || '',
+          bonus_text: d.bonus_text || d.bonus || d.bonus_code || local?.bonus_text || '',
+          description: d.description || d.full_review || d.desc || local?.description || '',
+          short_description: d.short_description || d.short_desc || local?.short_description || '',
+          website_url: d.website_url || d.direct_url || d.link || d.url || local?.website_url || 'https://example.com',
+          button_text: d.button_text || d.btn_text || local?.button_text || 'SİTEYE GİT & KAZAN',
+          rating: Number(d.rating || d.score || local?.rating || 4.8),
           category: cat,
-          featured: cat === 'vip' || (d.is_vip !== undefined && d.is_vip !== null ? Boolean(d.is_vip) : Boolean(d.featured)),
-          verified: isRowActive(d) && d.verified !== false,
-          active: isRowActive(d),
-          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (parseInt(d.sort_order) || 0),
-          stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
-            { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-            { id: `stat-2`, label: 'Deneme Bonusu', value: '250 TL', sort_order: 2 },
-            { id: `stat-3`, label: 'Kayıp Bonusu', value: '%20', sort_order: 3 },
-          ],
-          features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
-            { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
-            { id: `feat-2`, text: '7/24 Canlı Destek', sort_order: 2 },
-          ],
+          featured: cat === 'vip' || (d.is_vip !== undefined && d.is_vip !== null ? Boolean(d.is_vip) : (d.featured !== undefined ? Boolean(d.featured) : Boolean(local?.featured))),
+          verified: isRowActive(d) && (d.verified !== undefined ? d.verified !== false : (local?.verified !== false)),
+          active: isRowActive(d) && (local?.active !== undefined ? local.active : true),
+          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (local?.sort_order || 0),
+          bonus_code: d.bonus_code !== undefined && d.bonus_code !== null ? d.bonus_code : (local?.bonus_code || ''),
+          bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null ? d.bonus_headline : (local?.bonus_headline || ''),
+          badge_text: d.badge_text !== undefined && d.badge_text !== null ? d.badge_text : (local?.badge_text || ''),
+          min_deposit: d.min_deposit !== undefined && d.min_deposit !== null ? d.min_deposit : (local?.min_deposit || '50 ₺'),
+          withdrawal_speed: d.withdrawal_speed !== undefined && d.withdrawal_speed !== null ? d.withdrawal_speed : (local?.withdrawal_speed || '3 - 15 Dakika'),
+          license: d.license !== undefined && d.license !== null ? d.license : (local?.license || 'Curacao eGaming'),
+          rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null ? d.rtp_rate : (local?.rtp_rate || '%97.8'),
+          online_players: d.online_players ? String(d.online_players) : (local?.online_players || ''),
+          live_support: d.live_support || local?.live_support || '7/24 Türkçe Canlı Destek',
+          payment_methods: Array.isArray(d.payment_methods) && d.payment_methods.length > 0
+            ? d.payment_methods
+            : (local?.payment_methods || ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete']),
+          stats: resolvedStats,
+          features: resolvedFeatures,
         };
       });
+
+      // Retain locally created sponsors that aren't in remote sponsors yet, unless explicitly deleted
+      const deletedSet = new Set(getStored<string[]>(STORAGE_KEYS.DELETED_SPONSORS, []));
+      const remoteIds = new Set(mappedSponsors.map((s) => s.id));
+      const remoteSlugs = new Set(mappedSponsors.map((s) => (s.slug || '').toLowerCase()));
+
+      existingLocalSponsors.forEach((loc) => {
+        if (
+          loc &&
+          loc.id &&
+          !deletedSet.has(loc.id) &&
+          !remoteIds.has(loc.id) &&
+          !remoteSlugs.has((loc.slug || '').toLowerCase())
+        ) {
+          mappedSponsors.push(loc);
+        }
+      });
+
       mappedSponsors = sortSponsors(mappedSponsors);
       setStored(STORAGE_KEYS.SPONSORS, mappedSponsors, true);
     } else {
@@ -392,7 +469,7 @@ export const db = {
   },
 
   // --- Preload / Hybrid Portal Data from Database ---
-  async preloadAll(): Promise<{
+  async preloadAll(forceFresh = false): Promise<{
     sponsors: Sponsor[];
     heroSlides: HeroSlide[];
     banners: Banner[];
@@ -405,8 +482,13 @@ export const db = {
     // 1. Try server-side fast endpoint if available
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
-      const res = await fetch('/api/portal/data', { signal: controller.signal });
+      const timeoutMs = forceFresh ? 4000 : 2500;
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const url = forceFresh ? `/api/portal/data?fresh=true&t=${Date.now()}` : '/api/portal/data';
+      const res = await fetch(url, {
+        signal: controller.signal,
+        cache: forceFresh ? 'no-store' : 'default',
+      });
       clearTimeout(timer);
 
       if (res.ok) {
@@ -523,6 +605,14 @@ export const db = {
 
   // --- Sponsors (Database Authoritative) ---
   async getSponsors(): Promise<Sponsor[]> {
+    const existingLocalSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
+    const localMap = new Map<string, Sponsor>();
+    existingLocalSponsors.forEach((s) => {
+      if (s.id) localMap.set(s.id, s);
+      if (s.slug) localMap.set(s.slug, s);
+      if (s.name) localMap.set(s.name.toLowerCase().trim(), s);
+    });
+
     if (isSupabaseReady()) {
       try {
         const { data, error } = await withTimeout(
@@ -535,33 +625,81 @@ export const db = {
         if (!error && Array.isArray(data)) {
           const mapped = data.map((d: any) => {
             const cat = getSponsorCategory(d);
+            const idStr = String(d.id);
+            const nameStr = (d.name || d.title || 'Sponsor').trim();
+            const slugStr = d.slug || (nameStr ? nameStr.toLowerCase().replace(/[^a-z0-9]+/g, '-') : idStr);
+            const local = localMap.get(idStr) || localMap.get(slugStr) || localMap.get(nameStr.toLowerCase());
+
+            // Parse stats
+            let resolvedStats: SponsorStat[] = [
+              { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
+              { id: `stat-2`, label: 'Deneme Bonusu', value: '250 TL', sort_order: 2 },
+              { id: `stat-3`, label: 'Kayıp Bonusu', value: '%20', sort_order: 3 },
+            ];
+            if (Array.isArray(d.stats) && d.stats.length > 0) {
+              resolvedStats = d.stats;
+            } else if (typeof d.stats === 'string') {
+              try {
+                const parsed = JSON.parse(d.stats);
+                if (Array.isArray(parsed) && parsed.length > 0) resolvedStats = parsed;
+              } catch {
+                // ignore
+              }
+            } else if (local?.stats && Array.isArray(local.stats) && local.stats.length > 0) {
+              resolvedStats = local.stats;
+            }
+
+            // Parse features
+            let resolvedFeatures: SponsorFeature[] = [
+              { id: `feat-1`, text: 'Anında Çekim İmkanı', sort_order: 1 },
+              { id: `feat-2`, text: '7/24 Türkçe Canlı Destek', sort_order: 2 },
+              { id: `feat-3`, text: 'Lisanslı & Güvenilir Altyapı', sort_order: 3 },
+            ];
+            if (Array.isArray(d.features) && d.features.length > 0) {
+              resolvedFeatures = d.features;
+            } else if (typeof d.features === 'string') {
+              try {
+                const parsed = JSON.parse(d.features);
+                if (Array.isArray(parsed) && parsed.length > 0) resolvedFeatures = parsed;
+              } catch {
+                // ignore
+              }
+            } else if (local?.features && Array.isArray(local.features) && local.features.length > 0) {
+              resolvedFeatures = local.features;
+            }
+
             return {
               ...d,
-              id: d.id,
-              name: d.name,
-              slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : d.id),
-              logo_url: d.logo_url,
-              banner_url: d.banner_url || '',
-              bonus_text: d.bonus_text || '',
-              description: d.full_review || d.description || '',
-              short_description: d.short_desc || d.short_description || '',
-              website_url: d.direct_url || d.website_url || 'https://example.com',
-              button_text: d.button_text || 'DETAYLARI GÖR',
-              rating: Number(d.rating || 4.8),
+              id: idStr,
+              name: nameStr,
+              slug: slugStr,
+              logo_url: d.logo_url || d.logo || local?.logo_url || '',
+              banner_url: d.banner_url || d.banner || local?.banner_url || '',
+              bonus_text: d.bonus_text || d.bonus || d.bonus_code || local?.bonus_text || '',
+              description: d.description || d.full_review || d.desc || local?.description || '',
+              short_description: d.short_description || d.short_desc || local?.short_description || '',
+              website_url: d.website_url || d.direct_url || d.link || d.url || local?.website_url || 'https://example.com',
+              button_text: d.button_text || d.btn_text || local?.button_text || 'SİTEYE GİT & KAZAN',
+              rating: Number(d.rating || d.score || local?.rating || 4.8),
               category: cat,
-              featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured)),
-              verified: d.is_active !== false,
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-              sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (parseInt(d.sort_order) || 0),
-              stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
-                { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-                { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
-                { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
-              ],
-              features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
-                { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
-                { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
-              ],
+              featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : (d.featured !== undefined ? Boolean(d.featured) : Boolean(local?.featured))),
+              verified: d.is_active !== false && (d.verified !== undefined ? d.verified !== false : (local?.verified !== false)),
+              active: d.is_active !== undefined ? Boolean(d.is_active) : (local?.active !== undefined ? local.active : true),
+              sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (local?.sort_order || 0),
+              bonus_code: d.bonus_code !== undefined && d.bonus_code !== null && d.bonus_code !== '' ? d.bonus_code : (local?.bonus_code || ''),
+              bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null && d.bonus_headline !== '' ? d.bonus_headline : (local?.bonus_headline || ''),
+              badge_text: d.badge_text !== undefined && d.badge_text !== null && d.badge_text !== '' ? d.badge_text : (local?.badge_text || ''),
+              min_deposit: d.min_deposit !== undefined && d.min_deposit !== null && d.min_deposit !== '' ? d.min_deposit : (local?.min_deposit || '50 ₺'),
+              withdrawal_speed: d.withdrawal_speed !== undefined && d.withdrawal_speed !== null && d.withdrawal_speed !== '' ? d.withdrawal_speed : (local?.withdrawal_speed || '3 - 15 Dakika'),
+              license: d.license !== undefined && d.license !== null && d.license !== '' ? d.license : (local?.license || 'Curacao eGaming'),
+              rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null && d.rtp_rate !== '' ? d.rtp_rate : (local?.rtp_rate || '%97.8'),
+              online_players: d.online_players ? String(d.online_players) : (local?.online_players || ''),
+              live_support: d.live_support || local?.live_support || '7/24 Türkçe Canlı Destek',
+              payment_methods: Array.isArray(d.payment_methods) && d.payment_methods.length > 0
+                ? d.payment_methods
+                : (local?.payment_methods || ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete']),
+              stats: resolvedStats,
+              features: resolvedFeatures,
             };
           }) as Sponsor[];
           const sorted = sortSponsors(mapped);
@@ -614,34 +752,53 @@ export const db = {
           category: cat,
           featured: cat === 'vip' || Boolean(sponsor.featured),
           sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors.length + 1,
+          updated_at: new Date().toISOString(),
         } as Sponsor;
         sponsors.push(saved);
       }
     } else {
+      // Generate standard UUID or fallback
+      let newId = '';
+      try {
+        newId = crypto.randomUUID();
+      } catch {
+        newId = `sp-${Date.now()}`;
+      }
+
       saved = {
-        id: `sp-${Date.now()}`,
+        id: newId,
         name: sponsor.name || 'Yeni Sponsor',
-        slug: sponsor.slug || `sponsor-${Date.now()}`,
+        slug: sponsor.slug || (sponsor.name ? sponsor.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : `sponsor-${Date.now()}`),
         logo_url: sponsor.logo_url || 'https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=200&h=100&q=80',
         banner_url: sponsor.banner_url || '',
         description: sponsor.description || '',
         short_description: sponsor.short_description || '',
         website_url: sponsor.website_url || 'https://example.com',
-        button_text: sponsor.button_text || 'DETAYLARI GÖR',
+        button_text: sponsor.button_text || 'SİTEYE GİT & KAZAN',
         rating: sponsor.rating || 4.8,
         category: cat,
         featured: cat === 'vip' || Boolean(sponsor.featured),
         verified: sponsor.verified !== false,
         active: sponsor.active !== false,
         sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors.length + 1,
+        bonus_code: sponsor.bonus_code || '',
+        bonus_headline: sponsor.bonus_headline || '',
+        badge_text: sponsor.badge_text || '',
+        min_deposit: sponsor.min_deposit || '50 ₺',
+        withdrawal_speed: sponsor.withdrawal_speed || '3 - 15 Dakika',
+        license: sponsor.license || 'Curacao eGaming',
+        rtp_rate: sponsor.rtp_rate || '%97.8',
+        online_players: sponsor.online_players || 1420,
+        live_support: sponsor.live_support || '7/24 Türkçe Canlı Destek',
+        payment_methods: sponsor.payment_methods || ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete'],
         stats: sponsor.stats || [
           { id: `stat-${Date.now()}-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-          { id: `stat-${Date.now()}-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
-          { id: `stat-${Date.now()}-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
+          { id: `stat-${Date.now()}-2`, label: 'Deneme Bonusu', value: '250 TL', sort_order: 2 },
+          { id: `stat-${Date.now()}-3`, label: 'Kayıp Bonusu', value: '%20', sort_order: 3 },
         ],
         features: sponsor.features || [
-          { id: `feat-${Date.now()}-1`, text: 'Hızlı Çekim', sort_order: 1 },
-          { id: `feat-${Date.now()}-2`, text: '7/24 Destek', sort_order: 2 },
+          { id: `feat-${Date.now()}-1`, text: 'Anında Çekim İmkanı', sort_order: 1 },
+          { id: `feat-${Date.now()}-2`, text: '7/24 Canlı Destek', sort_order: 2 },
         ],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -652,35 +809,94 @@ export const db = {
     const sortedList = sortSponsors(sponsors);
     setStored(STORAGE_KEYS.SPONSORS, sortedList);
 
+    // Remove from deleted list if re-added
+    const deletedList = getStored<string[]>(STORAGE_KEYS.DELETED_SPONSORS, []);
+    if (deletedList.includes(saved.id)) {
+      setStored(STORAGE_KEYS.DELETED_SPONSORS, deletedList.filter((x) => x !== saved.id), true);
+    }
+
+    // 1. Server-Side Authoritative Save (bypasses RLS issues & purges server cache)
+    try {
+      const resp = await fetch('/api/sponsors/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saved),
+      });
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.sponsor) {
+          saved = { ...saved, ...json.sponsor };
+          const idx = sponsors.findIndex((s) => s.id === saved.id || s.slug === saved.slug);
+          if (idx !== -1) {
+            sponsors[idx] = saved;
+          }
+          setStored(STORAGE_KEYS.SPONSORS, sortSponsors(sponsors));
+        }
+      }
+    } catch (e) {
+      console.warn('Server /api/sponsors/save notice:', e);
+    }
+
+    // 2. Direct Supabase Client Save
     if (isSupabaseReady()) {
       try {
-        await supabase.from('sponsors').upsert({
-          id: saved.id,
+        const payload: any = {
           name: saved.name,
           slug: saved.slug,
           logo_url: saved.logo_url,
           banner_url: saved.banner_url || null,
-          bonus_text: (saved as any).bonus_text || null,
+          description: saved.description || '',
+          short_description: saved.short_description || '',
+          website_url: saved.website_url,
+          button_text: saved.button_text,
           rating: saved.rating || 5.0,
-          review_count: (saved as any).review_count || 0,
-          direct_url: saved.website_url || (saved as any).direct_url || null,
-          short_desc: saved.short_description || (saved as any).short_desc || null,
-          full_review: saved.description || (saved as any).full_review || null,
-          features: saved.features || [],
-          tags: (saved as any).tags || [],
           category: saved.category || cat,
-          is_active: saved.active !== false,
+          featured: saved.category === 'vip' || Boolean(saved.featured),
           is_vip: saved.category === 'vip' || Boolean(saved.featured),
-          is_popular: Boolean((saved as any).is_popular),
+          is_active: saved.active !== false,
           sort_order: saved.sort_order || 0,
-          created_at: saved.created_at || new Date().toISOString(),
-        });
+          bonus_code: saved.bonus_code || null,
+          bonus_headline: saved.bonus_headline || null,
+          badge_text: saved.badge_text || null,
+          min_deposit: saved.min_deposit || null,
+          withdrawal_speed: saved.withdrawal_speed || null,
+          license: saved.license || null,
+          rtp_rate: saved.rtp_rate || null,
+          online_players: saved.online_players ? String(saved.online_players) : null,
+          live_support: saved.live_support || '7/24 Türkçe Canlı Destek',
+          payment_methods: saved.payment_methods || [],
+          stats: saved.stats || [],
+          features: saved.features || [],
+          updated_at: new Date().toISOString(),
+        };
+
+        if (saved.id && !saved.id.startsWith('sp-')) {
+          payload.id = saved.id;
+        }
+
+        const { error } = await supabase.from('sponsors').upsert(payload);
+        if (error) {
+          console.warn('Supabase upsert warning, trying fallback:', error.message);
+          // Fallback with legacy column aliases
+          await supabase.from('sponsors').upsert({
+            name: saved.name,
+            slug: saved.slug,
+            logo_url: saved.logo_url,
+            direct_url: saved.website_url,
+            short_desc: saved.short_description,
+            full_review: saved.description,
+            category: saved.category,
+            rating: saved.rating,
+          });
+        }
       } catch (err) {
         console.warn('Supabase saveSponsor error:', err);
       }
     }
 
     await invalidateServerCache();
+    broadcastChange(STORAGE_KEYS.SPONSORS);
+
     await this.logAdminAction(
       sponsor.id ? 'Sponsor Güncellendi' : 'Yeni Sponsor Eklendi',
       'sponsor',
@@ -697,6 +913,24 @@ export const db = {
     const sorted = sortSponsors(filtered);
     setStored(STORAGE_KEYS.SPONSORS, sorted);
 
+    // Track as deleted so remote preloads don't resurrect it
+    const deletedList = getStored<string[]>(STORAGE_KEYS.DELETED_SPONSORS, []);
+    if (!deletedList.includes(id)) {
+      setStored(STORAGE_KEYS.DELETED_SPONSORS, [...deletedList, id], true);
+    }
+
+    // 1. Server API delete
+    try {
+      await fetch('/api/sponsors/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch {
+      // ignore
+    }
+
+    // 2. Direct Supabase delete
     if (isSupabaseReady()) {
       try {
         await supabase.from('sponsors').delete().eq('id', id);
@@ -706,6 +940,7 @@ export const db = {
     }
 
     await invalidateServerCache();
+    broadcastChange(STORAGE_KEYS.SPONSORS);
     await this.logAdminAction('Sponsor Silindi', 'sponsor', id, { name: target?.name });
   },
 

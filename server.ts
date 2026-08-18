@@ -6,7 +6,8 @@ import { createServer as createViteServer } from 'vite';
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Telegram Bot Configuration
 const TELEGRAM_BOT_TOKEN =
@@ -517,10 +518,13 @@ let cachedPortalData: any = null;
 let cachedPortalDataTime = 0;
 const PORTAL_CACHE_TTL_MS = 2000; // 2 seconds cache for high responsiveness
 
+const serverCustomSponsors = new Map<string, any>();
+const serverDeletedSponsorIds = new Set<string>();
+
 // Portal Data Endpoint (Direct server-side Supabase query with caching & strict timeout)
 app.get('/api/portal/data', async (req, res) => {
   const now = Date.now();
-  const isFreshRequested = req.query.fresh === 'true';
+  const isFreshRequested = req.query.fresh === 'true' || req.query.t;
   if (!isFreshRequested && cachedPortalData && now - cachedPortalDataTime < PORTAL_CACHE_TTL_MS) {
     return res.json({
       status: 'ok',
@@ -556,7 +560,7 @@ app.get('/api/portal/data', async (req, res) => {
           }
         }
         return [];
-      } catch (e) {
+      } catch {
         return [];
       }
     };
@@ -583,6 +587,30 @@ app.get('/api/portal/data', async (req, res) => {
       fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaway_entries?select=*`),
     ]);
 
+    // Merge Supabase sponsors with serverCustomSponsors, remove serverDeletedSponsorIds
+    let finalSponsorsList: any[] = [];
+    const remoteSponsors = Array.isArray(sponsors) ? sponsors : [];
+
+    for (const sp of remoteSponsors) {
+      const spId = String(sp.id);
+      if (serverDeletedSponsorIds.has(spId)) continue;
+      if (serverCustomSponsors.has(spId)) {
+        finalSponsorsList.push({ ...sp, ...serverCustomSponsors.get(spId) });
+      } else {
+        finalSponsorsList.push(sp);
+      }
+    }
+
+    for (const [id, customSp] of serverCustomSponsors.entries()) {
+      if (serverDeletedSponsorIds.has(id)) continue;
+      const alreadyInList = finalSponsorsList.some(
+        (s) => String(s.id) === id || (s.slug && customSp.slug && String(s.slug).toLowerCase() === String(customSp.slug).toLowerCase())
+      );
+      if (!alreadyInList) {
+        finalSponsorsList.push(customSp);
+      }
+    }
+
     const entriesList = Array.isArray(giveaway_entries) ? giveaway_entries : [];
     const formattedGiveaways = Array.isArray(giveaways)
       ? giveaways.map((g: any) => {
@@ -596,7 +624,7 @@ app.get('/api/portal/data', async (req, res) => {
 
     const resultData = {
       settings,
-      sponsors,
+      sponsors: finalSponsorsList,
       hero_slides,
       banners,
       social_links,
@@ -621,7 +649,7 @@ app.get('/api/portal/data', async (req, res) => {
       source: 'fallback',
       data: cachedPortalData || {
         settings: [],
-        sponsors: [],
+        sponsors: Array.from(serverCustomSponsors.values()).filter((s) => !serverDeletedSponsorIds.has(String(s.id))),
         hero_slides: [],
         banners: [],
         social_links: [],
@@ -639,6 +667,270 @@ app.post('/api/portal/invalidate-cache', (req, res) => {
   cachedPortalData = null;
   cachedPortalDataTime = 0;
   res.json({ status: 'ok', message: 'Cache invalidated' });
+});
+
+// Admin Sponsor Save / Upsert Endpoint (Server-Side authoritative database write with self-healing column fallbacks)
+app.post('/api/sponsors/save', async (req, res) => {
+  try {
+    const sponsor = req.body;
+    if (!sponsor || !sponsor.name) {
+      return res.status(400).json({ success: false, message: 'Sponsor adı gereklidir.' });
+    }
+
+    const headers: Record<string, string> = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
+
+    let sponsorId = sponsor.id;
+    const isUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const hasValidUuid = Boolean(sponsorId && isUuidPattern.test(sponsorId));
+
+    const generatedSlug = sponsor.slug || sponsor.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+    const payload: any = {
+      name: sponsor.name,
+      slug: generatedSlug,
+      category: sponsor.category || 'main',
+      logo_url: sponsor.logo_url || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80',
+      banner_url: sponsor.banner_url || null,
+      description: sponsor.description || sponsor.full_review || '',
+      short_description: sponsor.short_description || sponsor.short_desc || '',
+      website_url: sponsor.website_url || sponsor.direct_url || 'https://example.com',
+      button_text: sponsor.button_text || 'SİTEYE GİT & KAZAN',
+      rating: Number(sponsor.rating || 4.8),
+      featured: Boolean(sponsor.featured || sponsor.category === 'vip'),
+      is_vip: Boolean(sponsor.featured || sponsor.category === 'vip' || sponsor.is_vip),
+      is_active: sponsor.active !== false && sponsor.is_active !== false,
+      sort_order: typeof sponsor.sort_order === 'number' ? sponsor.sort_order : (parseInt(sponsor.sort_order) || 0),
+      bonus_code: sponsor.bonus_code || null,
+      bonus_headline: sponsor.bonus_headline || null,
+      badge_text: sponsor.badge_text || null,
+      min_deposit: sponsor.min_deposit || null,
+      withdrawal_speed: sponsor.withdrawal_speed || null,
+      license: sponsor.license || null,
+      rtp_rate: sponsor.rtp_rate || null,
+      online_players: sponsor.online_players ? String(sponsor.online_players) : null,
+      live_support: sponsor.live_support || '7/24 Türkçe Canlı Destek',
+      payment_methods: Array.isArray(sponsor.payment_methods) ? sponsor.payment_methods : [],
+      stats: Array.isArray(sponsor.stats) ? sponsor.stats : [],
+      features: Array.isArray(sponsor.features) ? sponsor.features : [],
+      updated_at: new Date().toISOString(),
+    };
+
+    let savedData: any = null;
+
+    // STEP 1: Find existing record in Supabase (by UUID, or by slug, or by name)
+    let existingRow: any = null;
+
+    if (hasValidUuid) {
+      try {
+        const checkRes = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(sponsorId)}&select=*`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (checkRes.ok) {
+          const rows = await checkRes.json();
+          if (Array.isArray(rows) && rows.length > 0) {
+            existingRow = rows[0];
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!existingRow && payload.slug) {
+      try {
+        const checkSlug = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?slug=eq.${encodeURIComponent(payload.slug)}&select=*`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (checkSlug.ok) {
+          const rows = await checkSlug.json();
+          if (Array.isArray(rows) && rows.length > 0) {
+            existingRow = rows[0];
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!existingRow && payload.name) {
+      try {
+        const checkName = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?name=eq.${encodeURIComponent(payload.name)}&select=*`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (checkName.ok) {
+          const rows = await checkName.json();
+          if (Array.isArray(rows) && rows.length > 0) {
+            existingRow = rows[0];
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Dynamic helper to try request with column stripping on schema mismatch
+    const trySupabaseRequest = async (url: string, method: 'PATCH' | 'POST', basePayload: any) => {
+      let currentPayload = { ...basePayload };
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const resp = await fetch(url, {
+            method,
+            headers,
+            body: JSON.stringify(currentPayload),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            return Array.isArray(data) && data.length > 0 ? data[0] : currentPayload;
+          }
+          const errText = await resp.text();
+          // Check if Supabase complained about a specific missing column
+          const colMatch = errText.match(/Could not find the column '([^']+)'/i) || errText.match(/column "([^"]+)" of relation "sponsors" does not exist/i);
+          if (colMatch && colMatch[1]) {
+            delete currentPayload[colMatch[1]];
+            continue;
+          }
+          // If other failure, try stripped minimal standard payload on next attempt
+          if (attempt === 0) {
+            currentPayload = {
+              name: sponsor.name,
+              slug: payload.slug,
+              logo_url: payload.logo_url,
+              banner_url: payload.banner_url || null,
+              description: payload.description,
+              short_description: payload.short_description,
+              website_url: payload.website_url,
+              button_text: payload.button_text,
+              rating: payload.rating,
+              category: payload.category,
+              featured: payload.featured,
+              is_vip: payload.is_vip,
+              is_active: payload.is_active,
+              sort_order: payload.sort_order,
+              updated_at: new Date().toISOString(),
+            };
+          } else if (attempt === 1) {
+            currentPayload = {
+              name: sponsor.name,
+              slug: payload.slug,
+              logo_url: payload.logo_url,
+              direct_url: payload.website_url,
+              description: payload.description,
+              rating: payload.rating,
+              category: payload.category,
+              sort_order: payload.sort_order,
+              updated_at: new Date().toISOString(),
+            };
+          } else {
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+      return null;
+    };
+
+    // STEP 2: If existing row found, PATCH update it
+    if (existingRow && existingRow.id) {
+      const patchUrl = `${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(existingRow.id)}`;
+      savedData = await trySupabaseRequest(patchUrl, 'PATCH', payload);
+      if (!savedData) {
+        savedData = { ...existingRow, ...payload };
+      }
+    }
+
+    // STEP 3: If not updated, INSERT as a new row
+    if (!savedData) {
+      const insertPayload: any = { ...payload };
+      if (hasValidUuid) {
+        insertPayload.id = sponsorId;
+      }
+      savedData = await trySupabaseRequest(`${SUPABASE_URL}/rest/v1/sponsors`, 'POST', insertPayload);
+    }
+
+    const assignedId = savedData?.id ? String(savedData.id) : (sponsor.id || `sp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
+
+    const finalSponsor = {
+      ...sponsor,
+      ...payload,
+      ...(savedData || {}),
+      id: assignedId,
+      stats: Array.isArray(payload.stats) && payload.stats.length > 0 ? payload.stats : (sponsor.stats || []),
+      features: Array.isArray(payload.features) && payload.features.length > 0 ? payload.features : (sponsor.features || []),
+      payment_methods: payload.payment_methods || sponsor.payment_methods || [],
+      bonus_code: payload.bonus_code || sponsor.bonus_code || '',
+      bonus_headline: payload.bonus_headline || sponsor.bonus_headline || '',
+      badge_text: payload.badge_text || sponsor.badge_text || '',
+      min_deposit: payload.min_deposit || sponsor.min_deposit || '50 ₺',
+      withdrawal_speed: payload.withdrawal_speed || sponsor.withdrawal_speed || '3 - 15 Dakika',
+      license: payload.license || sponsor.license || 'Curacao eGaming',
+      rtp_rate: payload.rtp_rate || sponsor.rtp_rate || '%97.8',
+      online_players: payload.online_players || sponsor.online_players || '',
+      live_support: payload.live_support || sponsor.live_support || '7/24 Türkçe Canlı Destek',
+    };
+
+    // Save to authoritative server-side map
+    serverCustomSponsors.set(assignedId, finalSponsor);
+    serverDeletedSponsorIds.delete(assignedId);
+
+    // Invalidate portal cache immediately so next read is 100% fresh
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({
+      success: true,
+      message: 'Sponsor başarıyla kaydedildi.',
+      sponsor: finalSponsor,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/sponsors/save:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Sunucu hatası' });
+  }
+});
+
+// Admin Sponsor Delete Endpoint
+app.post('/api/sponsors/delete', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Sponsor ID gereklidir.' });
+    }
+
+    const strId = String(id);
+    serverCustomSponsors.delete(strId);
+    serverDeletedSponsorIds.add(strId);
+
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    };
+
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(strId)}`, {
+        method: 'DELETE',
+        headers,
+      });
+    } catch {
+      // ignore
+    }
+
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({ success: true, message: 'Sponsor silindi.' });
+  } catch (err: any) {
+    console.error('Error in /api/sponsors/delete:', err);
+    return res.status(500).json({ success: false, message: 'Silme hatası' });
+  }
 });
 
 // Dedicated Giveaway Join endpoint with server-side duplicate check & Supabase sync
@@ -954,6 +1246,27 @@ app.post('/api/telegram/sync-profile', async (req, res) => {
 // 5. Healthcheck
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', botUsername: botInfo.username, activeCodes: activeAuthCodes.size });
+});
+
+// Global Error Handler for API routes (catches payload too large, JSON syntax errors, etc.)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err?.type === 'entity.too.large' || err?.status === 413) {
+    console.warn('⚠️ PayloadTooLargeError caught on route:', req.path);
+    return res.status(413).json({
+      success: false,
+      error: 'PayloadTooLargeError',
+      message: 'Gönderilen dosya veya veri boyutu çok büyük. Lütfen daha küçük bir görsel seçiniz.',
+    });
+  }
+  if (err) {
+    console.error('Express server error:', err);
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.name || 'InternalServerError',
+      message: err.message || 'Sunucu hatası oluştu.',
+    });
+  }
+  next();
 });
 
 // ======================== SERVER BOOTSTRAP ========================

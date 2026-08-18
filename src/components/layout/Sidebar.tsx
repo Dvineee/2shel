@@ -141,33 +141,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <NavLink
                 to="/"
                 onClick={() => soundEngine.playClick()}
-                className="flex items-center gap-3 group overflow-hidden"
+                className="flex items-center gap-2 group overflow-hidden min-w-0"
               >
                 {settings.logo_url ? (
                   <img
                     src={settings.logo_url}
                     alt={settings.site_name || 'Logo'}
-                    className="h-9 max-w-[180px] object-contain group-hover:scale-105 transition-transform"
+                    className="h-8 max-w-[40px] object-contain group-hover:scale-105 transition-transform flex-shrink-0"
                     onError={(e) => {
-                      // Fallback if image fails
                       (e.target as HTMLElement).style.display = 'none';
                     }}
                   />
                 ) : (
-                  <>
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 via-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-violet-600/30 group-hover:scale-105 transition-transform shrink-0">
-                      <Crown className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-black tracking-wider text-base bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-100 to-violet-300 truncate">
-                        {settings.site_name || 'SHELBYONLINE'}
-                      </span>
-                      <span className="text-[9px] tracking-widest text-violet-400 font-bold uppercase truncate">
-                        {settings.logo_tagline || 'PREMIUM SPONSOR NETWORK'}
-                      </span>
-                    </div>
-                  </>
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-violet-600 via-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-violet-600/30 group-hover:scale-105 transition-transform shrink-0">
+                    <Crown className="w-4 h-4 text-white" />
+                  </div>
                 )}
+
+                {/* Animated ShelbyOnline Energy & Scanner Logo next to the brand icon */}
+                <div className="shelby-logo flex-shrink-0">
+                  <div className="effects-clip">
+                    <div className="energy-stream" />
+                    <div className="energy-line" />
+                    <div className="bottom-streak" />
+                    <div className="scanner" />
+                  </div>
+
+                  <span
+                    className="logo-text"
+                    data-text={settings.site_name || 'SHELBYONLINE'}
+                  >
+                    {settings.site_name || 'SHELBYONLINE'}
+                  </span>
+                </div>
               </NavLink>
             ) : (
               <NavLink

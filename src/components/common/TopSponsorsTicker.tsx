@@ -3,12 +3,10 @@ import { NavLink } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { db } from '../../lib/db';
 import { soundEngine } from '../../lib/sound';
-import { ShieldCheck, ChevronRight, Copy, CheckCheck, Sparkles } from 'lucide-react';
-import { toast } from 'sonner';
+import { Flame } from 'lucide-react';
 
 export const TopSponsorsTicker: React.FC = () => {
   const { activeSponsors } = useData();
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
 
   // If there are no sponsors yet, return null
@@ -24,109 +22,62 @@ export const TopSponsorsTicker: React.FC = () => {
     db.trackSponsorClick(sponsor.id);
   };
 
-  const handleCopyCode = (e: React.MouseEvent, code: string, sponsorName: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    navigator.clipboard.writeText(code);
-    soundEngine.playCopy();
-    setCopiedCode(code);
-    toast.success(`${sponsorName} Promosyon Kodu (${code}) Kopyalandı!`);
-    setTimeout(() => {
-      setCopiedCode(null);
-    }, 2500);
-  };
-
   return (
     <div
-      className="w-full bg-[#0b0817] border-b border-violet-800/40 text-xs py-2 px-2 sm:px-4 flex items-center overflow-hidden shadow-xl relative z-30 select-none marquee-container"
+      className="w-full bg-[#080512] border-b border-violet-900/30 h-8 flex items-center overflow-hidden relative z-30 select-none marquee-container"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      {/* Full-width Dynamic Scrolling Sponsor Marquee */}
-      <div className="relative w-full overflow-hidden h-7 flex items-center mask-linear">
+      {/* Sleek Static Prefix Badge */}
+      <div className="hidden sm:flex items-center gap-1.5 px-3 h-full bg-[#0e081f] border-r border-violet-900/40 text-[11px] font-black tracking-wider uppercase text-violet-300 shrink-0 z-20 shadow-md">
+        <Flame className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+        <span>Sponsorlar</span>
+      </div>
+
+      {/* Edge Gradient Mask for Clean Reading Fade */}
+      <div className="pointer-events-none absolute left-0 sm:left-[105px] inset-y-0 w-8 bg-gradient-to-r from-[#080512] to-transparent z-10" />
+      <div className="pointer-events-none absolute right-0 inset-y-0 w-8 bg-gradient-to-l from-[#080512] to-transparent z-10" />
+
+      {/* Infinite Scrolling Ticker Track */}
+      <div className="relative w-full overflow-hidden h-full flex items-center">
         <div
-          className={`flex items-center gap-4 sm:gap-6 whitespace-nowrap animate-marquee ${
+          className={`flex items-center gap-6 whitespace-nowrap animate-marquee ${
             isPaused ? 'animate-marquee-paused' : ''
-          } cursor-pointer`}
-          style={{ animationPlayState: isPaused ? 'paused' : 'running' }}
+          }`}
+          style={{
+            animationDuration: '40s',
+            animationPlayState: isPaused ? 'paused' : 'running',
+          }}
         >
-          {tickerItems.map((sponsor, idx) => {
-            const primaryStat = sponsor.stats?.[0];
-            const bonusHighlight =
-              sponsor.badge_text ||
-              (primaryStat ? `${primaryStat.label}: ${primaryStat.value}` : sponsor.short_description || '%100 Hoş Geldin');
-
-            return (
-              <div
-                key={`${sponsor.id}-${idx}`}
+          {tickerItems.map((sponsor, idx) => (
+            <div
+              key={`${sponsor.id}-${idx}`}
+              className="inline-flex items-center gap-6 text-xs text-slate-300 transition-colors"
+            >
+              <NavLink
+                to={`/site/${sponsor.slug}`}
                 onClick={() => handleSponsorClick(sponsor)}
-                className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#160e2c]/90 border border-violet-800/40 hover:border-violet-400/80 hover:bg-violet-900/50 transition-all group shadow-sm"
+                className="inline-flex items-center gap-2 group hover:text-white transition-colors"
               >
-                <NavLink
-                  to={`/site/${sponsor.slug}`}
-                  className="inline-flex items-center gap-2"
-                >
-                  {/* Sponsor Logo Icon */}
-                  <div className="w-5 h-5 rounded-full overflow-hidden bg-black/60 border border-violet-700/60 flex-shrink-0 flex items-center justify-center p-0.5 group-hover:scale-110 transition-transform">
-                    <img
-                      src={sponsor.logo_url}
-                      alt={sponsor.name}
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-
-                  {/* Sponsor Name */}
-                  <span className="font-extrabold text-white text-xs group-hover:text-violet-300 transition-colors flex items-center gap-1">
-                    {sponsor.name}
-                    {sponsor.verified && (
-                      <ShieldCheck className="w-3 h-3 text-emerald-400 fill-emerald-400/20" />
-                    )}
-                  </span>
-
-                  {/* Bonus Highlight Tag */}
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 text-[10px] font-bold border border-amber-500/25">
-                    <Sparkles className="w-2.5 h-2.5 text-amber-400" />
-                    {bonusHighlight}
-                  </span>
-                </NavLink>
-
-                {/* Bonus Code Copy Badge (if available) */}
-                {sponsor.bonus_code && (
-                  <button
-                    onClick={(e) => handleCopyCode(e, sponsor.bonus_code!, sponsor.name)}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black font-mono tracking-wider transition-all ${
-                      copiedCode === sponsor.bonus_code
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-violet-950 text-violet-200 border border-violet-600/40 hover:border-amber-400 hover:text-amber-300'
-                    }`}
-                    title="Kodu Kopyala"
-                  >
-                    {copiedCode === sponsor.bonus_code ? (
-                      <>
-                        <CheckCheck className="w-2.5 h-2.5 text-emerald-300" />
-                        <span>KOPYALANDI</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-2.5 h-2.5 text-amber-400" />
-                        <span>{sponsor.bonus_code}</span>
-                      </>
-                    )}
-                  </button>
+                {/* Clean Sponsor Logo */}
+                {sponsor.logo_url && (
+                  <img
+                    src={sponsor.logo_url}
+                    alt={sponsor.name}
+                    className="w-4 h-4 object-contain rounded shrink-0 opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all"
+                  />
                 )}
 
-                {/* Quick Link Chevron */}
-                <NavLink
-                  to={`/site/${sponsor.slug}`}
-                  className="text-[10px] font-bold text-violet-400 group-hover:text-white transition-colors flex items-center pl-0.5"
-                >
-                  <ChevronRight className="w-3 h-3 text-violet-400 group-hover:translate-x-0.5 transition-transform" />
-                </NavLink>
+                {/* Sponsor Name Only */}
+                <span className="font-bold text-slate-200 group-hover:text-white transition-colors text-xs tracking-wider uppercase">
+                  {sponsor.name}
+                </span>
+              </NavLink>
 
-                <span className="text-violet-900 ml-0.5">•</span>
-              </div>
-            );
-          })}
+              {/* Clean Dot Separator */}
+              <span className="text-violet-700/60 font-bold select-none">•</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

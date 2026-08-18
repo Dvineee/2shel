@@ -185,3 +185,426 @@
   animation: circleRain linear infinite;
 }
 
+/* ==========================
+   SHELBYONLINE LOGO & ENERGY EFFECTS
+========================== */
+
+.shelby-logo {
+  position: relative;
+  width: auto;
+  min-width: 150px;
+  max-width: 220px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  font-family: "Exo 2", sans-serif;
+}
+
+/* TÜM EFEKT ALANI - FADE MASK */
+.effects-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 1;
+  pointer-events: none;
+
+  -webkit-mask-image:
+    linear-gradient(
+      to right,
+      transparent 0%,
+      rgba(0,0,0,.08) 4%,
+      rgba(0,0,0,.35) 9%,
+      rgba(0,0,0,.75) 14%,
+      #000 20%,
+      #000 76%,
+      rgba(0,0,0,.72) 84%,
+      rgba(0,0,0,.32) 92%,
+      rgba(0,0,0,.06) 97%,
+      transparent 100%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(0,0,0,.04) 6%,
+      rgba(0,0,0,.20) 14%,
+      rgba(0,0,0,.55) 23%,
+      rgba(0,0,0,.88) 32%,
+      #000 40%,
+      #000 60%,
+      rgba(0,0,0,.88) 68%,
+      rgba(0,0,0,.55) 77%,
+      rgba(0,0,0,.20) 86%,
+      rgba(0,0,0,.04) 94%,
+      transparent 100%
+    );
+
+  -webkit-mask-composite: source-in;
+
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent 0%,
+      rgba(0,0,0,.08) 4%,
+      rgba(0,0,0,.35) 9%,
+      rgba(0,0,0,.75) 14%,
+      #000 20%,
+      #000 76%,
+      rgba(0,0,0,.72) 84%,
+      rgba(0,0,0,.32) 92%,
+      rgba(0,0,0,.06) 97%,
+      transparent 100%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(0,0,0,.04) 6%,
+      rgba(0,0,0,.20) 14%,
+      rgba(0,0,0,.55) 23%,
+      rgba(0,0,0,.88) 32%,
+      #000 40%,
+      #000 60%,
+      rgba(0,0,0,.88) 68%,
+      rgba(0,0,0,.55) 77%,
+      rgba(0,0,0,.20) 86%,
+      rgba(0,0,0,.04) 94%,
+      transparent 100%
+    );
+
+  mask-composite: intersect;
+}
+
+/* BELİRSİZ MOR ENERJİ / SİS */
+.energy-stream {
+  position: absolute;
+  width: 160px;
+  height: 46px;
+  left: -170px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgba(229, 196, 255, .10) 0%,
+      rgba(192, 124, 255, .13) 20%,
+      rgba(151, 76, 255, .12) 36%,
+      rgba(117, 45, 229, .08) 52%,
+      rgba(84, 22, 181, .04) 67%,
+      transparent 82%
+    );
+  filter: blur(13px);
+  opacity: 0;
+  animation: energyMove 2.35s linear infinite;
+  z-index: 0;
+}
+
+/* ikinci sis katmanı */
+.energy-stream::before {
+  content: "";
+  position: absolute;
+  width: 125px;
+  height: 25px;
+  left: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(138, 55, 235, .04) 15%,
+      rgba(179, 103, 255, .10) 36%,
+      rgba(221, 181, 255, .12) 50%,
+      rgba(169, 88, 255, .08) 64%,
+      rgba(108, 35, 216, .03) 82%,
+      transparent 100%
+    );
+  filter: blur(10px);
+}
+
+/* üçüncü çok hafif katman */
+.energy-stream::after {
+  content: "";
+  position: absolute;
+  width: 90px;
+  height: 11px;
+  left: 35px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: rgba(216, 172, 255, .09);
+  filter: blur(8px);
+}
+
+/* YATAY İNCE IŞIK */
+.energy-line {
+  position: absolute;
+  width: 150px;
+  height: 1px;
+  left: -165px;
+  top: 50%;
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(118, 37, 235, .04),
+      rgba(164, 76, 255, .20),
+      rgba(207, 149, 255, .42),
+      rgba(255,255,255,.44),
+      rgba(184, 96, 255, .20),
+      transparent
+    );
+  filter: blur(.6px);
+  box-shadow:
+    0 0 5px rgba(196,128,255,.15),
+    0 0 10px rgba(122,42,226,.10);
+  animation: lineMove 2.35s linear infinite;
+}
+
+/* ALT IŞIK */
+.bottom-streak {
+  position: absolute;
+  width: 105px;
+  height: 4px;
+  left: -125px;
+  bottom: 7px;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      ellipse,
+      rgba(217,168,255,.30) 0%,
+      rgba(166,77,255,.16) 40%,
+      rgba(113,35,220,.05) 67%,
+      transparent 84%
+    );
+  filter: blur(3px);
+  animation: bottomMove 2.35s linear infinite;
+}
+
+/* SCANNER */
+.scanner {
+  position: absolute;
+  width: 5px;
+  height: 31px;
+  left: -32px;
+  top: 50%;
+  transform: translateY(-50%) skewX(-12deg);
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(228,193,255,.02) 10%,
+      rgba(229,195,255,.10) 28%,
+      rgba(255,255,255,.52) 48%,
+      rgba(214,155,255,.40) 57%,
+      rgba(155,67,255,.09) 76%,
+      transparent 100%
+    );
+  filter: blur(.6px);
+  box-shadow:
+    0 0 5px rgba(255,255,255,.25),
+    0 0 10px rgba(184,101,255,.25),
+    0 0 16px rgba(112,35,230,.11);
+  animation: scannerMove 2.35s linear infinite;
+  z-index: 3;
+}
+
+/* YAZI */
+.logo-text {
+  position: relative;
+  z-index: 5;
+  font-family: "Exo 2", sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 1.15px;
+  white-space: nowrap;
+  color: transparent;
+  background:
+    linear-gradient(
+      180deg,
+      #ffffff 0%,
+      #faf6ff 35%,
+      #d9bcff 65%,
+      #af7bea 100%
+    );
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter:
+    drop-shadow(0 0 2px rgba(255,255,255,.22))
+    drop-shadow(0 0 5px rgba(189,115,255,.26))
+    drop-shadow(0 0 9px rgba(125,45,255,.14));
+}
+
+/* YAZININ İÇİNDEKİ PARLAMA */
+.logo-text::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  background:
+    linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 35%,
+      rgba(255,255,255,.03) 40%,
+      rgba(255,255,255,.13) 44%,
+      rgba(255,255,255,.45) 48%,
+      #ffffff 51%,
+      rgba(235,201,255,.85) 54%,
+      rgba(255,255,255,.22) 58%,
+      transparent 64%,
+      transparent 100%
+    );
+  background-size: 270% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: textSweep 2.35s linear infinite;
+  animation-delay: .24s;
+  pointer-events: none;
+}
+
+/* YAZI ARKASINDA TAKİP EDEN GLOW */
+.logo-text::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  color: rgba(201,132,255,.28);
+  filter: blur(7px);
+  opacity: 0;
+  animation: glowFollow 2.35s linear infinite;
+  animation-delay: .24s;
+  pointer-events: none;
+}
+
+/* ANİMASYONLAR */
+@keyframes energyMove {
+  0% {
+    left: -170px;
+    opacity: 0;
+  }
+  10% {
+    opacity: .05;
+  }
+  20% {
+    opacity: .18;
+  }
+  38% {
+    opacity: .42;
+  }
+  56% {
+    opacity: .48;
+  }
+  76% {
+    opacity: .28;
+  }
+  91% {
+    opacity: .08;
+  }
+  100% {
+    left: 215px;
+    opacity: 0;
+  }
+}
+
+@keyframes lineMove {
+  0% {
+    left: -165px;
+    opacity: 0;
+  }
+  13% {
+    opacity: .04;
+  }
+  26% {
+    opacity: .28;
+  }
+  77% {
+    opacity: .25;
+  }
+  92% {
+    opacity: .04;
+  }
+  100% {
+    left: 198px;
+    opacity: 0;
+  }
+}
+
+@keyframes bottomMove {
+  0% {
+    left: -125px;
+    opacity: 0;
+  }
+  15% {
+    opacity: .04;
+  }
+  30% {
+    opacity: .30;
+  }
+  77% {
+    opacity: .22;
+  }
+  92% {
+    opacity: .03;
+  }
+  100% {
+    left: 195px;
+    opacity: 0;
+  }
+}
+
+@keyframes scannerMove {
+  0% {
+    left: -32px;
+    opacity: 0;
+  }
+  15% {
+    opacity: .04;
+  }
+  29% {
+    opacity: .42;
+  }
+  76% {
+    opacity: .35;
+  }
+  92% {
+    opacity: .03;
+  }
+  100% {
+    left: 187px;
+    opacity: 0;
+  }
+}
+
+@keyframes textSweep {
+  from {
+    background-position: 185% 0;
+  }
+  to {
+    background-position: -125% 0;
+  }
+}
+
+@keyframes glowFollow {
+  0% {
+    opacity: .01;
+  }
+  30% {
+    opacity: .08;
+  }
+  46% {
+    opacity: .28;
+  }
+  57% {
+    opacity: .35;
+  }
+  70% {
+    opacity: .13;
+  }
+  100% {
+    opacity: .01;
+  }
+}
+

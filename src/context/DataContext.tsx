@@ -56,20 +56,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isFetchingRef = React.useRef(false);
 
-  const loadData = useCallback(async () => {
-    if (isFetchingRef.current) return;
+  const loadData = useCallback(async (forceFresh = false) => {
+    if (isFetchingRef.current && !forceFresh) return;
     isFetchingRef.current = true;
     try {
       setError(null);
-      const preloaded = await db.preloadAll();
+      const preloaded = await db.preloadAll(forceFresh);
       if (preloaded) {
-        setSponsors(preloaded.sponsors || []);
-        setHeroSlides(preloaded.heroSlides || []);
-        setBanners(preloaded.banners || []);
-        setSocialLinks(preloaded.socialLinks || []);
-        setWheelRewards(preloaded.wheelRewards || []);
-        setGiveaways(preloaded.giveaways || []);
-        setStoreProducts(preloaded.storeProducts || []);
+        if (preloaded.sponsors) setSponsors(preloaded.sponsors);
+        if (preloaded.heroSlides) setHeroSlides(preloaded.heroSlides);
+        if (preloaded.banners) setBanners(preloaded.banners);
+        if (preloaded.socialLinks) setSocialLinks(preloaded.socialLinks);
+        if (preloaded.wheelRewards) setWheelRewards(preloaded.wheelRewards);
+        if (preloaded.giveaways) setGiveaways(preloaded.giveaways);
+        if (preloaded.storeProducts) setStoreProducts(preloaded.storeProducts);
         if (preloaded.settings) {
           setSettings(preloaded.settings);
         }
@@ -104,13 +104,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     loadData();
 
-    // 1. Listen to changes across admin views with debounce
+    // 1. Listen to changes across admin views - immediately apply local cache for 0ms lag
     let debounceTimer: any = null;
     const handler = () => {
+      // Immediate local state synchronization from storage
+      const currentCache = db.getCachedData();
+      if (currentCache.sponsors && currentCache.sponsors.length > 0) {
+        setSponsors(sortSponsors(currentCache.sponsors));
+      }
+      if (currentCache.settings) {
+        setSettings(currentCache.settings);
+      }
+      if (currentCache.banners && currentCache.banners.length > 0) {
+        setBanners(currentCache.banners);
+      }
+
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        loadData();
-      }, 300);
+        loadData(true);
+      }, 200);
     };
     window.addEventListener('sponsorhub_db_change', handler);
 
@@ -205,7 +217,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         settings,
         loading,
         error,
-        refreshAll: loadData,
+        refreshAll: async () => {
+          await loadData(true);
+        },
         updateSettings,
       }}
     >

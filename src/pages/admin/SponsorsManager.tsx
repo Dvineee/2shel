@@ -32,6 +32,9 @@ import {
   Clock,
   Headphones,
   Image as ImageIcon,
+  Database,
+  Copy,
+  CheckCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
@@ -47,6 +50,8 @@ export const SponsorsManager: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | SponsorCategory | 'active' | 'passive'>('all');
   const [modalTab, setModalTab] = useState<'general' | 'details' | 'stats_features'>('general');
+  const [showSqlModal, setShowSqlModal] = useState(false);
+  const [sqlCopied, setSqlCopied] = useState(false);
 
   // Form State
   const [name, setName] = useState('');
@@ -95,7 +100,7 @@ export const SponsorsManager: React.FC = () => {
     setName('');
     setSlug('');
     setCategory(defaultCategory);
-    setLogoUrl('');
+    setLogoUrl('https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80');
     setBannerUrl('');
     setWebsiteUrl('https://');
     setButtonText('SİTEYE GİT & KAZAN');
@@ -185,11 +190,15 @@ export const SponsorsManager: React.FC = () => {
     e.preventDefault();
     setLoading(true);
 
-    if (!logoUrl.trim()) {
-      toast.error('Lütfen bir sponsor logosu belirleyin.');
+    if (!name.trim()) {
+      toast.error('Lütfen bir sponsor adı girin.');
       setLoading(false);
       return;
     }
+
+    const finalLogoUrl =
+      logoUrl.trim() ||
+      'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80';
 
     const generatedSlug = slug.trim()
       ? slug.trim().toLowerCase().replace(/\s+/g, '-')
@@ -201,13 +210,13 @@ export const SponsorsManager: React.FC = () => {
       .filter((p) => p.length > 0);
 
     const sponsorData: Partial<Sponsor> = {
-      name,
+      name: name.trim(),
       slug: generatedSlug,
       category,
-      logo_url: logoUrl,
+      logo_url: finalLogoUrl,
       banner_url: bannerUrl,
-      website_url: websiteUrl,
-      button_text: buttonText,
+      website_url: websiteUrl.trim() && websiteUrl.trim() !== 'https://' ? websiteUrl.trim() : 'https://example.com',
+      button_text: buttonText || 'SİTEYE GİT & KAZAN',
       short_description: shortDesc,
       description,
       featured: category === 'vip' || featured,
@@ -229,19 +238,38 @@ export const SponsorsManager: React.FC = () => {
     };
 
     try {
-      if (isNew) {
+      if (isNew || !editingSponsor?.id) {
         await db.createSponsor(sponsorData as any);
         toast.success(`"${name}" sponsoru başarıyla eklendi!`);
-      } else if (editingSponsor && editingSponsor.id) {
+      } else {
         await db.updateSponsor(editingSponsor.id, sponsorData);
         toast.success(`"${name}" sponsorunun tüm detayları güncellendi!`);
       }
       setEditingSponsor(null);
       await refreshAll();
-    } catch {
-      toast.error('Kayıt sırasında bir hata oluştu');
+    } catch (err: any) {
+      console.error('Sponsor save error:', err);
+      toast.error('Kayıt sırasında bir hata oluştu: ' + (err?.message || ''));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDuplicate = async (sponsor: Sponsor) => {
+    soundEngine.playClick();
+    try {
+      const duplicateData: Partial<Sponsor> = {
+        ...sponsor,
+        name: `${sponsor.name} (Kopya)`,
+        slug: `${sponsor.slug}-kopya-${Math.random().toString(36).substring(2, 6)}`,
+        sort_order: (sponsor.sort_order || sponsors.length) + 1,
+      };
+      delete (duplicateData as any).id;
+      await db.createSponsor(duplicateData as any);
+      toast.success(`"${sponsor.name}" başarıyla çoğaltıldı!`);
+      await refreshAll();
+    } catch (err: any) {
+      toast.error('Çoğaltma sırasında hata: ' + (err?.message || ''));
     }
   };
 
@@ -387,6 +415,17 @@ export const SponsorsManager: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              soundEngine.playClick();
+              setShowSqlModal(true);
+            }}
+            className="px-3.5 py-2.5 rounded-xl bg-violet-950/70 border border-violet-700/60 text-violet-300 hover:text-white hover:bg-violet-900/60 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+            title="Supabase SQL Tablo Kodu"
+          >
+            <Database className="w-3.5 h-3.5 text-violet-400" />
+            <span>SQL Tablo Kodu</span>
+          </button>
           <button
             onClick={() => refreshAll()}
             className="p-2.5 rounded-xl bg-violet-950/60 border border-violet-800/40 text-violet-300 hover:text-white hover:bg-violet-900/50 transition-colors cursor-pointer"
@@ -618,6 +657,13 @@ export const SponsorsManager: React.FC = () => {
                       {/* Action Buttons */}
                       <td className="px-4 py-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleDuplicate(sponsor)}
+                            className="p-2 rounded-xl bg-violet-950/60 hover:bg-violet-800 text-violet-300 hover:text-white border border-violet-800/30 transition-colors cursor-pointer"
+                            title="Sponsoru Çoğalt / Kopyala"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             onClick={() => openEditModal(sponsor)}
                             className="p-2 rounded-xl bg-violet-950/60 hover:bg-violet-800 text-violet-300 hover:text-white border border-violet-800/30 transition-colors cursor-pointer"
@@ -934,7 +980,16 @@ export const SponsorsManager: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                  {/* Banner Image for Detail Page */}
+                  <ImageUploadField
+                    label="Detay Sayfası Üst Kapak Banner Görseli"
+                    value={bannerUrl}
+                    onChange={setBannerUrl}
+                    placeholder="https://... veya kapak görseli yükleyin"
+                    helperText="Detay sayfasının en üstünde arka plan kapak görseli olarak kullanılır (Önerilen: 1200x400)."
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-violet-400" />
@@ -975,7 +1030,34 @@ export const SponsorsManager: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                        <ShieldCheck className="w-3.5 h-3.5 text-violet-400" />
+                        Lisans Bilgisi
+                      </label>
+                      <input
+                        type="text"
+                        value={license}
+                        onChange={(e) => setLicense(e.target.value)}
+                        placeholder="Örn: Curacao eGaming (8048/JAZ)"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                        <Zap className="w-3.5 h-3.5 text-violet-400" />
+                        Ortalama RTP Oranı
+                      </label>
+                      <input
+                        type="text"
+                        value={rtpRate}
+                        onChange={(e) => setRtpRate(e.target.value)}
+                        placeholder="Örn: %97.8"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-violet-400" />
                         Aktif Oyuncu Sayısı
                       </label>
                       <input
@@ -1166,6 +1248,100 @@ export const SponsorsManager: React.FC = () => {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* SQL Migration Modal */}
+      {showSqlModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#120b24] border border-violet-800/60 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-violet-800/40 flex items-center justify-between bg-violet-950/40">
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-violet-400" />
+                <h3 className="text-sm sm:text-base font-black text-white">
+                  Supabase PostgreSQL Tablo & Kolon Kodları
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowSqlModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-violet-900/40 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Eğer Supabase veritabanınızda sponsor detay kolonları (çekim hızı, min yatırım, lisans, rtp, istatistikler, ödeme yöntemleri) henüz eklenmediyse, aşağıdaki SQL komutunu <strong>Supabase Dashboard &gt; SQL Editor</strong> bölümüne yapıştırıp <strong>Run</strong> diyerek çalıştırabilirsiniz:
+              </p>
+
+              <div className="relative">
+                <pre className="p-4 rounded-xl bg-[#090514] border border-violet-900/60 text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto select-all">
+{`-- 1. Sponsors Tablosu Detay & İstatistik Kolonları
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_code text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_headline text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS badge_text text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS min_deposit text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS withdrawal_speed text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS license text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS rtp_rate text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;`}
+                </pre>
+
+                <button
+                  onClick={() => {
+                    const sqlText = `-- 1. Sponsors Tablosu Detay & İstatistik Kolonları
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_code text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_headline text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS badge_text text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS min_deposit text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS withdrawal_speed text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS license text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS rtp_rate text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;`;
+                    navigator.clipboard.writeText(sqlText);
+                    setSqlCopied(true);
+                    toast.success('SQL kodu panoya kopyalandı!');
+                    setTimeout(() => setSqlCopied(false), 2000);
+                  }}
+                  className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+                >
+                  {sqlCopied ? (
+                    <>
+                      <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>Kopyalandı!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Kopyala</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="p-3 rounded-xl bg-violet-950/40 border border-violet-800/30 text-xs text-slate-400">
+                💡 <strong>Not:</strong> Bu SQL komutu var olan tablonuza zarar vermez (`IF NOT EXISTS` ile sadece eksik kolonları ekler). Kolonlar eklendiğinde tüm detay verileri doğrudan Supabase bulut veritabanınızda kalıcı saklanır.
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-violet-800/40 flex justify-end bg-violet-950/30">
+              <button
+                onClick={() => setShowSqlModal(false)}
+                className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
           </div>
         </div>
       )}

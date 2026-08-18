@@ -91,18 +91,14 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
           accentDot: 'bg-emerald-400',
         };
 
-  // Derive Box 1 (Offer / Bonus)
-  const box1Label = sponsor.stats?.[0]?.label || 'BONUS';
-  const box1Value =
-    sponsor.stats?.[0]?.value ||
-    sponsor.bonus_text ||
-    (sponsor.min_deposit ? `MİN. ${sponsor.min_deposit}` : '%100');
-
-  // Derive Box 2 (Code / Secondary Bonus)
-  const box2Label = sponsor.stats?.[1]?.label || (sponsor.bonus_code ? 'KOD' : 'BONUS');
-  const box2Value = sponsor.bonus_code
-    ? `(${sponsor.bonus_code})`
-    : sponsor.stats?.[1]?.value || '%30';
+  // Resolve card metric stats (supports dynamic stats: İlk Yatırım, Deneme Bonusu, Kayıp Bonusu, etc.)
+  const cardStats = (sponsor.stats && Array.isArray(sponsor.stats) && sponsor.stats.length > 0)
+    ? sponsor.stats.slice(0, 3)
+    : [
+        { label: 'İLK YATIRIM', value: sponsor.bonus_text || '%100' },
+        { label: 'DENEME', value: '250 TL' },
+        { label: 'KAYIP', value: '%20' },
+      ];
 
   // Subtitle / promo explanation line
   const subtitle =
@@ -111,11 +107,14 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
       ? `(${sponsor.bonus_code}) Koduna Özel ${sponsor.bonus_text || '500 TL NAKİT'}`
       : sponsor.bonus_text || '%100 İlk Yatırım & Çevrimsiz Bonus');
 
-  // Button text display (defaults to 'SİTEYE GİT' if empty or set to old default)
-  const ctaButtonText =
+  // Button text display: On desktop show full text (e.g. SİTEYE GİT & KAZAN), on mobile display compact 'SİTEYE GİT'
+  const desktopButtonText =
     sponsor.button_text && sponsor.button_text !== 'DETAYLARI GÖR'
       ? sponsor.button_text
-      : 'SİTEYE GİT';
+      : 'SİTEYE GİT & KAZAN';
+
+  const mobileButtonText =
+    desktopButtonText.replace(/\s*&\s*KAZAN/gi, '').trim() || 'SİTEYE GİT';
 
   return (
     <div
@@ -231,31 +230,21 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
             {subtitle}
           </p>
 
-          {/* 2-Box Metric Boxes */}
-          <div className="grid grid-cols-2 gap-1 sm:gap-2 mb-2 sm:mb-3">
-            {/* Box 1 */}
-            <div
-              className={`${themeColors.boxBg} border ${themeColors.boxBorder} rounded-md sm:rounded-lg p-1 sm:p-2 flex flex-col items-center justify-center text-center min-h-[38px] sm:min-h-[46px] shadow-sm transition-all duration-300 group-hover:bg-[#150a2b] overflow-hidden`}
-            >
-              <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 truncate w-full">
-                {box1Label}
-              </span>
-              <span className="text-[10px] sm:text-[13px] font-black text-white uppercase tracking-tight truncate w-full">
-                {box1Value}
-              </span>
-            </div>
-
-            {/* Box 2 */}
-            <div
-              className={`${themeColors.boxBg} border ${themeColors.boxBorder} rounded-md sm:rounded-lg p-1 sm:p-2 flex flex-col items-center justify-center text-center min-h-[38px] sm:min-h-[46px] shadow-sm transition-all duration-300 group-hover:bg-[#150a2b] overflow-hidden`}
-            >
-              <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 truncate w-full">
-                {box2Label}
-              </span>
-              <span className="text-[10px] sm:text-[13px] font-black text-white uppercase tracking-tight truncate w-full">
-                {box2Value}
-              </span>
-            </div>
+          {/* Dynamic Metric / Bonus Boxes */}
+          <div className={`grid ${cardStats.length === 3 ? 'grid-cols-3 gap-1 sm:gap-1.5' : 'grid-cols-2 gap-1 sm:gap-2'} mb-2 sm:mb-3`}>
+            {cardStats.map((stat, idx) => (
+              <div
+                key={idx}
+                className={`${themeColors.boxBg} border ${themeColors.boxBorder} rounded-md sm:rounded-lg p-1 sm:p-1.5 flex flex-col items-center justify-center text-center min-h-[38px] sm:min-h-[46px] shadow-sm transition-all duration-300 group-hover:bg-[#150a2b] overflow-hidden`}
+              >
+                <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 truncate w-full">
+                  {stat.label}
+                </span>
+                <span className="text-[9.5px] sm:text-[12px] font-black text-white uppercase tracking-tight truncate w-full">
+                  {stat.value}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -280,7 +269,8 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
             onClick={(e) => handleDirectSiteClick(e)}
             className={`flex-1 group/btn relative overflow-hidden ${themeColors.btnBg} font-black text-[9.5px] sm:text-[11px] uppercase px-2 sm:px-3 py-1.5 rounded-md sm:rounded-lg flex items-center justify-center gap-1 shadow-md transition-all duration-300 hover:scale-[1.02] active:scale-95 cursor-pointer whitespace-nowrap min-h-[30px] sm:min-h-[34px]`}
           >
-            <span className="relative z-10">{ctaButtonText}</span>
+            <span className="relative z-10 sm:hidden">{mobileButtonText}</span>
+            <span className="relative z-10 hidden sm:inline">{desktopButtonText}</span>
             <ExternalLink className="w-2.5 h-2.5 sm:w-3 sm:h-3 relative z-10 group-hover/btn:translate-x-0.5 transition-transform duration-300 shrink-0" />
             
             {/* Subtle soft sheen sweep */}

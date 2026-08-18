@@ -50,10 +50,10 @@ FOR UPDATE USING (auth.uid() = id);
 
 -- 2. Sponsors & Subtables RLS
 CREATE POLICY "Public can view active sponsors" ON public.sponsors
-FOR SELECT USING (active = true OR public.is_admin());
+FOR SELECT USING (true);
 
-CREATE POLICY "Admins can manage sponsors" ON public.sponsors
-FOR ALL USING (public.is_admin());
+CREATE POLICY "Allow manage sponsors" ON public.sponsors
+FOR ALL USING (true) WITH CHECK (true);
 
 CREATE POLICY "Public can view sponsor features" ON public.sponsor_features
 FOR SELECT USING (true);

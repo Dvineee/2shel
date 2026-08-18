@@ -31,22 +31,30 @@ import { getSponsorCategory } from '../lib/sponsorUtils';
 export const SponsorDetailPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { activeSponsors } = useData();
-  const [sponsor, setSponsor] = useState<Sponsor | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { sponsors, activeSponsors } = useData();
+  const [sponsor, setSponsor] = useState<Sponsor | null>(() => {
+    return sponsors.find((s) => s.slug === slug || s.id === slug) || null;
+  });
+  const [loading, setLoading] = useState(!sponsor);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
-    const fetchSponsor = async () => {
-      setLoading(true);
-      const data = await db.getSponsorBySlug(slug);
-      setSponsor(data);
+    const match = sponsors.find((s) => s.slug === slug || s.id === slug);
+    if (match) {
+      setSponsor(match);
       setLoading(false);
-    };
-    fetchSponsor();
+    } else {
+      const fetchSponsor = async () => {
+        setLoading(true);
+        const data = await db.getSponsorBySlug(slug);
+        setSponsor(data);
+        setLoading(false);
+      };
+      fetchSponsor();
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [slug]);
+  }, [slug, sponsors]);
 
   const handleJoinClick = () => {
     soundEngine.playClick();
@@ -206,7 +214,12 @@ export const SponsorDetailPage: React.FC = () => {
               onClick={handleJoinClick}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl font-black text-xs sm:text-sm text-white bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 shadow-xl shadow-violet-900/40 hover:scale-[1.02] active:scale-95 transition-all cursor-pointer"
             >
-              <span>{(sponsor.button_text && sponsor.button_text !== 'DETAYLARI GÖR') ? sponsor.button_text : 'SİTEYE GİT'}</span>
+              <span className="sm:hidden">
+                {((sponsor.button_text && sponsor.button_text !== 'DETAYLARI GÖR' ? sponsor.button_text : 'SİTEYE GİT & KAZAN').replace(/\s*&\s*KAZAN/gi, '').trim()) || 'SİTEYE GİT'}
+              </span>
+              <span className="hidden sm:inline">
+                {(sponsor.button_text && sponsor.button_text !== 'DETAYLARI GÖR') ? sponsor.button_text : 'SİTEYE GİT & KAZAN'}
+              </span>
               <ExternalLink className="w-4 h-4" />
             </button>
           </div>
@@ -400,6 +413,29 @@ export const SponsorDetailPage: React.FC = () => {
                 </span>
                 <span className="font-bold text-white">{sponsor.min_deposit || '50 ₺'}</span>
               </div>
+              <div className="flex items-center justify-between py-1.5 border-b border-violet-900/20">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-violet-400" />
+                  Lisans
+                </span>
+                <span className="font-bold text-emerald-400">{sponsor.license || 'Curacao eGaming'}</span>
+              </div>
+              <div className="flex items-center justify-between py-1.5 border-b border-violet-900/20">
+                <span className="text-slate-400 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-violet-400" />
+                  Ortalama RTP
+                </span>
+                <span className="font-bold text-amber-400">{sponsor.rtp_rate || '%97.8'}</span>
+              </div>
+              {sponsor.online_players && (
+                <div className="flex items-center justify-between py-1.5 border-b border-violet-900/20">
+                  <span className="text-slate-400 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-violet-400" />
+                    Aktif Oyuncu
+                  </span>
+                  <span className="font-bold text-white">{sponsor.online_players}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between py-1.5 border-b border-violet-900/20">
                 <span className="text-slate-400 flex items-center gap-1.5">
                   <Headphones className="w-3.5 h-3.5 text-violet-400" />
