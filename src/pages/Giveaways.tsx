@@ -100,12 +100,26 @@ export const GiveawaysPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedGiveawayForResults]);
 
+  const isGiveawayExpired = (g: Giveaway) => {
+    if (g.is_completed) return true;
+    if (!g.end_at) return false;
+    return new Date(g.end_at).getTime() <= Date.now();
+  };
+
   const handleJoin = async (giveawayId: string) => {
     if (!user) {
       soundEngine.playClick();
       toast.error('Çekilişe katılabilmek için lütfen giriş yapınız.');
       return;
     }
+
+    const targetG = giveaways.find((g) => g.id === giveawayId);
+    if (targetG && isGiveawayExpired(targetG)) {
+      soundEngine.playClick();
+      toast.error('Bu çekilişin katılım süresi dolmuştur. Katılım sağlanamaz.');
+      return;
+    }
+
     soundEngine.playClick();
     setJoiningId(giveawayId);
     try {
@@ -128,12 +142,13 @@ export const GiveawaysPage: React.FC = () => {
     }
   };
 
-  const activeCount = giveaways.filter((g) => !g.is_completed).length;
-  const completedCount = giveaways.filter((g) => g.is_completed).length;
+  const activeCount = giveaways.filter((g) => !isGiveawayExpired(g)).length;
+  const completedCount = giveaways.filter((g) => isGiveawayExpired(g)).length;
 
   const displayGiveaways = giveaways.filter((g) => {
-    if (filterTab === 'active') return !g.is_completed;
-    if (filterTab === 'completed') return g.is_completed;
+    const expired = isGiveawayExpired(g);
+    if (filterTab === 'active') return !expired;
+    if (filterTab === 'completed') return expired;
     return true;
   });
 
@@ -199,8 +214,6 @@ export const GiveawaysPage: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {/* Giveaways Grid / Empty State */}
       {displayGiveaways.length === 0 ? (
         <div className="p-12 rounded-3xl bg-[#120b24] border border-violet-900/40 text-center space-y-4 shadow-xl">
           <div className="w-16 h-16 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto shadow-lg shadow-rose-500/10">
@@ -221,11 +234,13 @@ export const GiveawaysPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {displayGiveaways.map((giveaway) => {
             const isUserJoined = joinedIds.includes(giveaway.id);
+            const isExpired = isGiveawayExpired(giveaway);
+
             return (
               <div
                 key={giveaway.id}
                 className={`rounded-3xl bg-[#120b24] border overflow-hidden flex flex-col transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl group ${
-                  giveaway.is_completed
+                  isExpired
                     ? 'border-amber-500/40 hover:border-amber-400 shadow-amber-950/20'
                     : isUserJoined
                     ? 'border-emerald-500/40 hover:border-emerald-400/60 shadow-emerald-950/20'
@@ -248,7 +263,7 @@ export const GiveawaysPage: React.FC = () => {
                       <Crown className="w-3 h-3 text-amber-400" />
                       <span>{giveaway.winner_count || 1} Kazanan</span>
                     </span>
-                    {isUserJoined && !giveaway.is_completed && (
+                    {isUserJoined && !isExpired && (
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 backdrop-blur-md flex items-center gap-1 shadow-md">
                         <CheckCircle className="w-3 h-3 text-emerald-400" />
                         <span>Katıldınız</span>
@@ -256,11 +271,18 @@ export const GiveawaysPage: React.FC = () => {
                     )}
                   </div>
 
-                  {giveaway.is_completed ? (
-                    <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 text-violet-950 text-xs font-black flex items-center gap-1.5 shadow-xl shadow-black/60 border border-amber-300/70">
-                      <Trophy className="w-3.5 h-3.5 fill-violet-950 text-violet-950" />
-                      <span>SONUÇLANAN ÇEKİLİŞ</span>
-                    </div>
+                  {isExpired ? (
+                    giveaway.is_completed ? (
+                      <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 text-violet-950 text-xs font-black flex items-center gap-1.5 shadow-xl shadow-black/60 border border-amber-300/70">
+                        <Trophy className="w-3.5 h-3.5 fill-violet-950 text-violet-950" />
+                        <span>SONUÇLANDI</span>
+                      </div>
+                    ) : (
+                      <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-gradient-to-r from-rose-600 to-amber-600 text-white text-xs font-black flex items-center gap-1.5 shadow-xl shadow-black/60 border border-rose-400/50">
+                        <Clock className="w-3.5 h-3.5 text-white" />
+                        <span>SÜRESİ DOLDU</span>
+                      </div>
+                    )
                   ) : (
                     <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-xs font-bold text-amber-300 flex items-center gap-1.5 shadow-lg">
                       <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -288,42 +310,60 @@ export const GiveawaysPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Winner Showcase Badge */}
-                  {giveaway.is_completed && giveaway.winner_username && (
-                    <div
-                      onClick={() => {
-                        soundEngine.playClick();
-                        setSelectedGiveawayForResults(giveaway);
-                      }}
-                      className="my-2 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-violet-950/40 border border-amber-500/40 shadow-inner space-y-1.5 cursor-pointer hover:border-amber-400 hover:bg-amber-500/25 transition-all group/win"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-extrabold text-amber-300">
-                          <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
-                          <span>KAZANANLAR:</span>
+                  {/* Winner Showcase / Expired Status Notice */}
+                  {isExpired && (
+                    giveaway.winner_username ? (
+                      <div
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setSelectedGiveawayForResults(giveaway);
+                        }}
+                        className="my-2 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-yellow-500/10 to-violet-950/40 border border-amber-500/40 shadow-inner space-y-1.5 cursor-pointer hover:border-amber-400 hover:bg-amber-500/25 transition-all group/win"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-extrabold text-amber-300">
+                            <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span>KAZANANLAR:</span>
+                          </div>
+                          <span className="text-[10px] text-amber-300/80 font-bold group-hover/win:text-amber-200 group-hover/win:underline flex items-center gap-0.5">
+                            Tümünü Gör →
+                          </span>
                         </div>
-                        <span className="text-[10px] text-amber-300/80 font-bold group-hover/win:text-amber-200 group-hover/win:underline flex items-center gap-0.5">
-                          Tümünü Gör →
+                        <div className="flex flex-wrap gap-1.5">
+                          {String(giveaway.winner_username || '')
+                            .split(',')
+                            .map((wName, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2.5 py-0.5 rounded-lg bg-amber-400 text-violet-950 font-black text-xs inline-flex items-center gap-1 shadow-sm"
+                              >
+                                @{wName.trim().replace(/^@/, '')}
+                              </span>
+                            ))}
+                        </div>
+                        {giveaway.winner_note && (
+                          <p className="text-[11px] text-slate-300 italic pl-1 line-clamp-1">
+                            "{giveaway.winner_note}"
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => {
+                          soundEngine.playClick();
+                          setSelectedGiveawayForResults(giveaway);
+                        }}
+                        className="my-2 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-2 cursor-pointer hover:bg-amber-500/20 hover:border-amber-500/50 transition-all"
+                      >
+                        <div className="flex items-center gap-2 text-xs text-amber-300 font-bold">
+                          <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>Süre Doldu • Kazananlar Belirleniyor</span>
+                        </div>
+                        <span className="text-[10px] text-amber-400 font-extrabold underline shrink-0">
+                          İncele →
                         </span>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {String(giveaway.winner_username || '')
-                          .split(',')
-                          .map((wName, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2.5 py-0.5 rounded-lg bg-amber-400 text-violet-950 font-black text-xs inline-flex items-center gap-1 shadow-sm"
-                            >
-                              @{wName.trim().replace(/^@/, '')}
-                            </span>
-                          ))}
-                      </div>
-                      {giveaway.winner_note && (
-                        <p className="text-[11px] text-slate-300 italic pl-1 line-clamp-1">
-                          "{giveaway.winner_note}"
-                        </p>
-                      )}
-                    </div>
+                    )
                   )}
 
                   {/* Footer Stats & CTA */}
@@ -334,7 +374,7 @@ export const GiveawaysPage: React.FC = () => {
                       <span>Katılımcı</span>
                     </div>
 
-                    {giveaway.is_completed ? (
+                    {isExpired ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -343,8 +383,8 @@ export const GiveawaysPage: React.FC = () => {
                         }}
                         className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-violet-950 flex items-center gap-1.5 shadow-md shadow-amber-950/40 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-amber-300/60"
                       >
-                        <Crown className="w-3.5 h-3.5 fill-violet-950 text-violet-950" />
-                        <span>Kazananlar</span>
+                        <Trophy className="w-3.5 h-3.5 fill-violet-950 text-violet-950" />
+                        <span>{giveaway.winner_username ? 'Kazananları Gör' : 'Sonuçları İncele'}</span>
                       </button>
                     ) : isUserJoined ? (
                       <div className="px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 flex items-center gap-1.5 shadow-sm">
@@ -397,7 +437,11 @@ export const GiveawaysPage: React.FC = () => {
 
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500 text-violet-950 text-xs font-black mb-3 shadow-md">
                 <Trophy className="w-3.5 h-3.5 fill-violet-950" />
-                <span>ÇEKİLİŞ SONUÇLARI</span>
+                <span>
+                  {selectedGiveawayForResults.winner_username || selectedGiveawayForResults.is_completed
+                    ? 'ÇEKİLİŞ SONUÇLARI'
+                    : 'SÜRESİ DOLAN ÇEKİLİŞ'}
+                </span>
               </div>
 
               <h2 className="text-xl sm:text-2xl font-black text-white pr-8">
@@ -419,48 +463,61 @@ export const GiveawaysPage: React.FC = () => {
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 mb-2 shadow-lg shadow-amber-500/10">
                   <Crown className="w-8 h-8" />
                 </div>
-                <h3 className="text-lg font-bold text-white">Resmi Kazananlar Listesi</h3>
+                <h3 className="text-lg font-bold text-white">
+                  {selectedGiveawayForResults.winner_username
+                    ? 'Resmi Kazananlar Listesi'
+                    : 'Çekiliş Süresi Sona Erdi'}
+                </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Çekiliş noter/sistem onaylı olarak tamamlanmış olup talihliler aşağıda listelenmiştir.
+                  {selectedGiveawayForResults.winner_username
+                    ? 'Çekiliş noter/sistem onaylı olarak tamamlanmış olup talihliler aşağıda listelenmiştir.'
+                    : 'Bu çekilişin katılım süresi dolmuştur. Yeni katılım kabul edilmemektedir.'}
                 </p>
               </div>
 
               {/* Winners Cards List */}
               <div className="space-y-2.5">
-                {String(selectedGiveawayForResults.winner_username || '')
-                  .split(',')
-                  .map((name) => name.trim())
-                  .filter(Boolean)
-                  .map((winner, index) => (
-                    <div
-                      key={index}
-                      className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-violet-950/40 border border-amber-500/40 flex items-center justify-between gap-3 shadow-inner"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-amber-400 text-violet-950 font-black text-xs flex items-center justify-center shadow-md">
-                          #{index + 1}
-                        </div>
-                        <div>
-                          <div className="font-extrabold text-sm text-white flex items-center gap-1.5">
-                            <span>@{winner.replace(/^@/, '')}</span>
-                            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                {selectedGiveawayForResults.winner_username ? (
+                  String(selectedGiveawayForResults.winner_username)
+                    .split(',')
+                    .map((name) => name.trim())
+                    .filter(Boolean)
+                    .map((winner, index) => (
+                      <div
+                        key={index}
+                        className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-violet-950/40 border border-amber-500/40 flex items-center justify-between gap-3 shadow-inner"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-amber-400 text-violet-950 font-black text-xs flex items-center justify-center shadow-md">
+                            #{index + 1}
                           </div>
-                          <span className="text-[11px] text-amber-300/90 font-semibold">
-                            {selectedGiveawayForResults.prize_details || 'Çekiliş Kazananı'}
-                          </span>
+                          <div>
+                            <div className="font-extrabold text-sm text-white flex items-center gap-1.5">
+                              <span>@{winner.replace(/^@/, '')}</span>
+                              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                            </div>
+                            <span className="text-[11px] text-amber-300/90 font-semibold">
+                              {selectedGiveawayForResults.prize_details || 'Çekiliş Kazananı'}
+                            </span>
+                          </div>
                         </div>
+
+                        <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold shrink-0">
+                          Kazandı 🎉
+                        </span>
                       </div>
-
-                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold shrink-0">
-                        Kazandı 🎉
-                      </span>
+                    ))
+                ) : (
+                  <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-500/10 via-yellow-500/5 to-violet-950/40 border border-amber-500/30 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto shadow-md">
+                      <Clock className="w-6 h-6" />
                     </div>
-                  ))}
-
-                {(!selectedGiveawayForResults.winner_username ||
-                  selectedGiveawayForResults.winner_username.trim() === '') && (
-                  <div className="p-4 rounded-xl bg-violet-950/30 border border-violet-800/30 text-center text-xs text-slate-400">
-                    Henüz kazanan bilgisi girilmemiştir.
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Kazananlar Belirleniyor</h4>
+                      <p className="text-xs text-slate-300 max-w-sm mx-auto mt-1 leading-relaxed">
+                        Katılım listesi kilitlenmiştir. Sistem kura çekiminin ardından kazanan talihliler bu listede ve resmi Telegram kanalımızda ilan edilecektir.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -497,7 +554,7 @@ export const GiveawaysPage: React.FC = () => {
                 </div>
 
                 <div className="p-3 rounded-xl bg-violet-950/40 border border-violet-900/40 text-center col-span-2 sm:col-span-1">
-                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Tarih</div>
+                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Bitiş Tarihi</div>
                   <div className="text-xs font-bold text-slate-300 mt-0.5 flex items-center justify-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-slate-400" />
                     <span>{formatDate(selectedGiveawayForResults.end_at)}</span>

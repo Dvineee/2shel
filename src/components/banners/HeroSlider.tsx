@@ -51,16 +51,15 @@ export const HeroSlider: React.FC<HeroSliderProps> = ({ slides }) => {
         {/* Slide Content */}
         <div className="absolute inset-0 z-20 flex flex-col justify-center px-6 md:px-12 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-600/30 border border-violet-400/40 text-violet-300 text-xs font-bold w-fit mb-3 backdrop-blur-md">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>ÖNE ÇIKAN ETKİNLİK</span>
+
           </div>
 
           <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold text-white leading-tight tracking-tight drop-shadow-md">
-            {current.title}
+            
           </h2>
 
           <p className="mt-2 text-xs sm:text-sm md:text-base text-slate-300 line-clamp-2 drop-shadow">
-            {current.subtitle}
+            
           </p>
 
           <div className="mt-5 flex items-center gap-3">

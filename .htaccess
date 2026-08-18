@@ -1,0 +1,23 @@
+# ----------------------------------------------------------------------
+# LiteSpeed / Apache SPA URL Rewrite & Direct Refresh Configuration
+# ----------------------------------------------------------------------
+
+# Disable MultiViews so LiteSpeed doesn't try to guess file extensions
+Options -MultiViews
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Don't rewrite actual files, directories, or symlinks
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d [OR]
+  RewriteCond %{REQUEST_FILENAME} -l
+  RewriteRule ^ - [L]
+
+  # Direct all other routes (/giveaways, /wheel, /store, /sponsors, /admin/*) directly to index.html
+  RewriteRule ^ index.html [QSA,L]
+</IfModule>
+
+# Fallback for LiteSpeed error handler to directly serve index.html with 200/404 preservation
+ErrorDocument 404 /index.html

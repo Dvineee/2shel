@@ -139,12 +139,12 @@ export const TelegramLoginWidget: React.FC<TelegramLoginWidgetProps> = ({
             <input
               type="text"
               required
-              maxLength={8}
+              maxLength={20}
               value={inputCode}
-              onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-              placeholder="Botun verdiği 6 haneli kod..."
+              onChange={(e) => setInputCode(e.target.value)}
+              placeholder="6 Haneli Kod veya @kullanıcıadı..."
               autoFocus
-              className="w-full text-center text-lg sm:text-xl font-bold font-mono tracking-widest py-2.5 px-3 rounded-xl bg-[#090518] border border-violet-600/50 text-amber-400 placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all uppercase"
+              className="w-full text-center text-sm sm:text-base font-bold font-mono tracking-wide py-2.5 px-3 rounded-xl bg-[#090518] border border-violet-600/50 text-amber-400 placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all"
             />
           </div>
 

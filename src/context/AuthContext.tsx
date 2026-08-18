@@ -14,6 +14,7 @@ interface AuthContextType {
   register: (username: string, email?: string, pass?: string) => Promise<boolean>;
   logout: () => void;
   refreshProfile: () => Promise<void>;
+  syncTelegramProfile: () => Promise<boolean>;
   isAdmin: boolean;
   isEditor: boolean;
   isSuperAdmin: boolean;
@@ -258,6 +259,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return await loginWithTelegram(adminTgUser);
       }
 
+      // If user provided a Telegram username (starts with @ or contains letters)
+      if (cleanCode.startsWith('@') || (!/^\d{4,8}$/.test(cleanCode) && cleanCode.length >= 3)) {
+        const cleanName = cleanCode.replace('@', '').toLowerCase();
+        const profiles = await db.getProfiles();
+        const matched = profiles.find(
+          (p) =>
+            p.telegram_username?.toLowerCase().replace('@', '') === cleanName ||
+            p.username.toLowerCase().replace('@', '') === cleanName
+        );
+
+        if (matched) {
+          return await loginWithTelegram({
+            id: matched.telegram_id || matched.id.replace('tg-', ''),
+            username: matched.telegram_username || matched.username,
+            first_name: matched.telegram_first_name || matched.username,
+            last_name: matched.telegram_last_name || '',
+            photo_url: matched.avatar_url,
+          });
+        } else {
+          // Attempt to sync from Telegram API directly
+          try {
+            const syncRes = await fetch('/api/telegram/sync-profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: cleanName }),
+            });
+            if (syncRes.ok) {
+              const syncData = await syncRes.json();
+              if (syncData.success) {
+                return await loginWithTelegram({
+                  id: syncData.telegram_id || String(Date.now()).slice(-8),
+                  username: cleanName,
+                  first_name: cleanName,
+                  photo_url: syncData.photo_url,
+                });
+              }
+            }
+          } catch {}
+        }
+      }
+
       // 1. First attempt to verify with server Telegram Bot API (if Node.js backend running)
       let backendCheckAttempted = false;
       try {
@@ -405,6 +447,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const syncTelegramProfile = async (): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const tgId = user.telegram_id || (user.id.startsWith('tg-') ? user.id.replace('tg-', '') : '');
+      const tgUser = user.telegram_username || (user.username.startsWith('@') ? user.username.replace('@', '') : user.username);
+
+      const res = await fetch('/api/telegram/sync-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          telegram_id: tgId || undefined,
+          username: tgUser || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.photo_url) {
+          const updated = await db.saveProfile({
+            ...user,
+            avatar_url: data.photo_url,
+            telegram_photo_url: data.photo_url,
+            telegram_username: data.telegram_username || user.telegram_username,
+            telegram_id: data.telegram_id || user.telegram_id,
+            is_telegram_verified: true,
+          });
+          setUser(updated);
+          toast.success('Telegram profiliniz ve fotoğrafınız başarıyla güncellendi!');
+          return true;
+        }
+      }
+      toast.info('Telegram profili kontrol edildi.');
+      return false;
+    } catch (err) {
+      console.error('Error syncing Telegram profile:', err);
+      return false;
+    }
+  };
+
   const isKajjuAdmin = !!(
     user &&
     (user.role === 'admin' ||
@@ -431,6 +512,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         refreshProfile,
+        syncTelegramProfile,
         isAdmin,
         isEditor,
         isSuperAdmin,

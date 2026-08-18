@@ -6,7 +6,8 @@ import { SocialBar } from '../components/common/SocialBar';
 import { FeaturedCards } from '../components/common/FeaturedCards';
 import { SponsorGrid } from '../components/sponsors/SponsorGrid';
 import { formatTimeLeft, formatCoin } from '../lib/utils';
-import { Gift, ShoppingBag, Trophy, ArrowRight, Sparkles, Flame, Clock, Crown } from 'lucide-react';
+import { db } from '../lib/db';
+import { Gift, ShoppingBag, Trophy, ArrowRight, Clock, Crown } from 'lucide-react';
 
 export const Home: React.FC = () => {
   const {
@@ -15,30 +16,78 @@ export const Home: React.FC = () => {
     activeSponsors,
     giveaways,
     storeProducts,
+    topBanners,
+    bottomBanners,
+    settings,
     loading,
   } = useData();
 
+  const handleBannerClick = (bannerId: string) => {
+    db.trackBannerClick(bannerId);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      {/* 1. Hero Banner Slider */}
-      <HeroSlider slides={heroSlides} />
+      {/* 1. Hero Showcase Slider OR Top Banner fallback */}
+      {heroSlides && heroSlides.length > 0 ? (
+        <HeroSlider slides={heroSlides} />
+      ) : topBanners && topBanners.length > 0 ? (
+        <div className="w-full rounded-2xl overflow-hidden border border-violet-800/30 shadow-lg hover:border-violet-500/50 transition-all">
+          <a
+            href={topBanners[0].target_url}
+            onClick={() => handleBannerClick(topBanners[0].id)}
+            target={topBanners[0].target_url.startsWith('http') ? '_blank' : '_self'}
+            rel="noopener noreferrer"
+            className="block w-full"
+          >
+            <img
+              src={topBanners[0].image_url}
+              alt={topBanners[0].name}
+              className="w-full h-auto max-h-[160px] object-cover hover:scale-[1.01] transition-transform duration-300"
+            />
+          </a>
+        </div>
+      ) : null}
 
-      {/* 2. Social / Telegram Community Buttons */}
-      <SocialBar links={socialLinks} />
+      {/* 2. Social / Telegram Community Quick Access */}
+      {socialLinks && socialLinks.length > 0 && (
+        <SocialBar links={socialLinks} />
+      )}
 
       {/* 3. Featured Category Cards */}
       <FeaturedCards />
 
       {/* 4. Sponsor Cards Grid (Main Core Section) */}
-      <SponsorGrid
-        sponsors={activeSponsors}
-        loading={loading}
-        title="GÜVENİLİR SPONSORLAR & BONUSLAR"
-        showFilters={true}
-      />
+      {settings.page_sponsors_enabled !== false && (
+        <SponsorGrid
+          sponsors={activeSponsors}
+          loading={loading}
+          title="GÜVENİLİR SPONSORLAR & BONUSLAR"
+          showFilters={true}
+        />
+      )}
 
-      {/* 5. Featured Giveaways Section */}
-      {giveaways && giveaways.length > 0 && (
+      {/* 5. Promotional Middle / Bottom Banner (If configured) */}
+      {bottomBanners && bottomBanners.length > 0 && (
+        <div className="w-full rounded-2xl overflow-hidden border border-violet-800/30 shadow-lg hover:border-violet-500/50 transition-all my-4">
+          <a
+            href={bottomBanners[0].target_url}
+            onClick={() => handleBannerClick(bottomBanners[0].id)}
+            target={bottomBanners[0].target_url.startsWith('http') ? '_blank' : '_self'}
+            rel="noopener noreferrer"
+            className="block w-full"
+          >
+            <img
+              src={bottomBanners[0].image_url}
+              alt={bottomBanners[0].name}
+              className="w-full h-auto max-h-[150px] object-cover hover:scale-[1.01] transition-transform duration-300"
+            />
+          </a>
+        </div>
+      )}
+
+      {/* 6. Featured Giveaways Section */}
+      {settings.page_giveaways_enabled !== false && giveaways && giveaways.length > 0 && (
         <section className="my-8 p-6 rounded-3xl bg-gradient-to-br from-[#130b26] via-[#0d0918] to-[#120b24] border border-violet-800/30 shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
             <div className="flex items-center gap-2.5">
@@ -138,8 +187,8 @@ export const Home: React.FC = () => {
         </section>
       )}
 
-      {/* 6. Store Preview Section */}
-      {storeProducts && storeProducts.length > 0 && (
+      {/* 7. Store Preview Section */}
+      {settings.page_store_enabled !== false && storeProducts && storeProducts.length > 0 && (
         <section className="my-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">

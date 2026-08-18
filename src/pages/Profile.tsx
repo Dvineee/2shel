@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { TelegramLoginWidget } from '../components/auth/TelegramLoginWidget';
 import { formatCoin } from '../lib/utils';
 import {
   Coins,
@@ -25,21 +26,72 @@ export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
 
   if (!user) {
+    const telegramChannelUrl =
+      settings.telegram_channel_url ||
+      settings.telegram_url ||
+      'https://t.me/ShelbyOnline';
+
     return (
-      <div className="text-center py-16 px-4">
-        <div className="w-16 h-16 rounded-2xl bg-violet-900/30 border border-violet-700/40 flex items-center justify-center text-violet-400 mx-auto mb-3">
-          <UserCheck className="w-8 h-8" />
+      <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 space-y-3 sm:space-y-4 pb-20 sm:pb-12 animate-in fade-in duration-200">
+        {/* Guest Profile Card */}
+        <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-purple-950/80 via-[#120b24] to-[#090518] border border-violet-700/40 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-[#24A1DE]/15 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="relative shrink-0">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 sm:border-3 border-violet-500/40 shadow-xl bg-violet-950/80 flex items-center justify-center text-violet-400">
+                  <UserCheck className="w-8 h-8 sm:w-10 sm:h-10" />
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-lg sm:text-2xl font-black text-white">
+                    Misafir Kullanıcı
+                  </h1>
+                  <span className="uppercase text-[9px] sm:text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
+                    Giriş Yapılmadı
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Telegram ile anında bağlanın, bonus coinlerinizi ve çekiliş haklarınızı toplayın.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-        <p className="text-sm font-bold text-white mb-1">Oturum Açılmadı</p>
-        <p className="text-xs text-slate-400 mb-4 max-w-xs mx-auto">
-          Profilinizi görüntülemek ve ödüllerinizi yönetmek için lütfen giriş yapın.
-        </p>
-        <NavLink
-          to="/login"
-          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold text-xs shadow-lg shadow-violet-900/40"
+
+        {/* Telegram Login Widget */}
+        <div className="p-4 sm:p-6 rounded-2xl sm:rounded-3xl bg-[#120b24]/90 border border-violet-800/40 shadow-xl">
+          <TelegramLoginWidget
+            title="Telegram ile Hızlı Giriş"
+            subtitle="Telegram botundan 6 haneli kodunuzu alıp veya kullanıcı adınızla anında giriş yapabilirsiniz."
+          />
+        </div>
+
+        {/* Channel Banner */}
+        <a
+          href={telegramChannelUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-[#24A1DE]/15 via-violet-900/20 to-purple-950/40 border border-[#24A1DE]/30 hover:border-[#24A1DE]/60 transition-all flex items-center justify-between gap-3 group"
         >
-          Giriş Yap
-        </NavLink>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#24A1DE]/20 border border-[#24A1DE]/40 flex items-center justify-center text-[#24A1DE] shrink-0 group-hover:scale-105 transition-transform">
+              <Megaphone className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-black text-white group-hover:text-cyan-300 transition-colors">
+                Resmi Telegram Kanalımıza Katılın
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Anlık çekilişler, sürpriz promosyon kodları ve VIP hediyeler kanalda!
+              </p>
+            </div>
+          </div>
+          <ExternalLink className="w-4 h-4 text-[#24A1DE] shrink-0 group-hover:translate-x-0.5 transition-transform" />
+        </a>
       </div>
     );
   }

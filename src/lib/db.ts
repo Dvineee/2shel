@@ -2,6 +2,7 @@ import {
   Sponsor,
   HeroSlide,
   Banner,
+  BannerPosition,
   SocialLink,
   WheelReward,
   WheelSpin,
@@ -19,6 +20,13 @@ import {
 import {
   initialGiveawayTemplates,
   initialSiteSettings,
+  initialSponsors,
+  initialHeroSlides,
+  initialBanners,
+  initialSocialLinks,
+  initialWheelRewards,
+  initialGiveaways,
+  initialStoreProducts,
 } from './initialData';
 import { supabase, getStoredSupabaseConfig } from './supabase';
 
@@ -44,7 +52,7 @@ const STORAGE_KEYS = {
   BANNER_CLICKS: 'sponsorhub_banner_clicks_v1',
 };
 
-// Local storage helper
+// Local cache sync helper
 function getStored<T>(key: string, defaultValue: T): T {
   try {
     const item = localStorage.getItem(key);
@@ -65,11 +73,20 @@ function setStored<T>(key: string, value: T, silent = false): void {
   }
 }
 
+// Invalidate server-side cache so all clients and endpoints stay 100% updated in real-time
+async function invalidateServerCache() {
+  try {
+    fetch('/api/portal/invalidate-cache', { method: 'POST' }).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
 // Fast timeout wrapper to prevent slow/hanging network requests
-function withTimeout<T>(promise: PromiseLike<T>, ms = 2500): Promise<T> {
+function withTimeout<T>(promise: PromiseLike<T>, ms = 8000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`Operation timed out after ${ms}ms`));
+      reject(new Error(`Database operation timed out after ${ms}ms`));
     }, ms);
     Promise.resolve(promise)
       .then((res) => {
@@ -83,23 +100,253 @@ function withTimeout<T>(promise: PromiseLike<T>, ms = 2500): Promise<T> {
   });
 }
 
-// Database Service API
+// Database Service API - 100% Database-Driven & Synchronized
 export const db = {
-  // --- Synchronous instant local cache retrieval ---
+  // --- Synchronous initial cache retrieval for instant React rendering ---
   getCachedData() {
+    const cachedSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
+    const cachedSlides = getStored<HeroSlide[]>(STORAGE_KEYS.HERO_SLIDES, []);
+    const cachedBanners = getStored<Banner[]>(STORAGE_KEYS.BANNERS, []);
+    const cachedSocials = getStored<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, []);
+    const cachedRewards = getStored<WheelReward[]>(STORAGE_KEYS.WHEEL_REWARDS, []);
+    const cachedGiveaways = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []);
+    const cachedProducts = getStored<StoreProduct[]>(STORAGE_KEYS.STORE_PRODUCTS, []);
+    const cachedSettings = getStored<SiteSettings>(STORAGE_KEYS.SITE_SETTINGS, initialSiteSettings);
+
     return {
-      sponsors: getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []),
-      heroSlides: getStored<HeroSlide[]>(STORAGE_KEYS.HERO_SLIDES, []),
-      banners: getStored<Banner[]>(STORAGE_KEYS.BANNERS, []),
-      socialLinks: getStored<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, []),
-      wheelRewards: getStored<WheelReward[]>(STORAGE_KEYS.WHEEL_REWARDS, []),
-      giveaways: getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []),
-      storeProducts: getStored<StoreProduct[]>(STORAGE_KEYS.STORE_PRODUCTS, []),
-      settings: getStored<SiteSettings>(STORAGE_KEYS.SITE_SETTINGS, initialSiteSettings),
+      sponsors: cachedSponsors,
+      heroSlides: cachedSlides,
+      banners: cachedBanners,
+      socialLinks: cachedSocials,
+      wheelRewards: cachedRewards,
+      giveaways: cachedGiveaways,
+      storeProducts: cachedProducts,
+      settings: cachedSettings,
     };
   },
 
-  // --- Preload / Hybrid Portal Data ---
+  // --- Helper to parse, map and cache full portal data from database ---
+  parseAndCachePortalData(rawData: {
+    settings?: any[];
+    sponsors?: any[];
+    hero_slides?: any[];
+    banners?: any[];
+    social_links?: any[];
+    wheel_rewards?: any[];
+    giveaways?: any[];
+    store_products?: any[];
+    giveaway_entries?: any[];
+  }): {
+    sponsors: Sponsor[];
+    heroSlides: HeroSlide[];
+    banners: Banner[];
+    socialLinks: SocialLink[];
+    wheelRewards: WheelReward[];
+    giveaways: Giveaway[];
+    storeProducts: StoreProduct[];
+    settings: SiteSettings;
+  } {
+    const {
+      settings,
+      sponsors,
+      hero_slides,
+      banners,
+      social_links,
+      wheel_rewards,
+      giveaways,
+      store_products,
+      giveaway_entries,
+    } = rawData;
+
+    let mappedSettings = initialSiteSettings;
+    if (settings && Array.isArray(settings) && settings.length > 0) {
+      const gen = settings.find((s: any) => s.setting_key === 'general');
+      if (gen?.setting_value) {
+        mappedSettings = { ...initialSiteSettings, ...gen.setting_value };
+        setStored(STORAGE_KEYS.SITE_SETTINGS, mappedSettings, true);
+      }
+    }
+
+    let mappedSponsors: Sponsor[] = [];
+    if (Array.isArray(sponsors)) {
+      mappedSponsors = sponsors.map((d: any) => ({
+        ...d,
+        id: d.id,
+        name: d.name,
+        slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : d.id),
+        logo_url: d.logo_url,
+        banner_url: d.banner_url || '',
+        bonus_text: d.bonus_text || '',
+        description: d.full_review || d.description || '',
+        short_description: d.short_desc || d.short_description || '',
+        website_url: d.direct_url || d.website_url || 'https://example.com',
+        button_text: d.button_text || 'DETAYLARI GÖR',
+        rating: Number(d.rating || 4.8),
+        featured: d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured),
+        verified: d.is_active !== false,
+        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+        sort_order: d.sort_order || 0,
+        stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
+          { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
+          { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
+          { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
+        ],
+        features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
+          { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
+          { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
+        ],
+      }));
+      setStored(STORAGE_KEYS.SPONSORS, mappedSponsors, true);
+    }
+
+    let mappedHeroSlides: HeroSlide[] = [];
+    if (Array.isArray(hero_slides)) {
+      mappedHeroSlides = hero_slides.map((d: any) => ({
+        id: d.id,
+        title: d.title,
+        subtitle: d.subtitle || '',
+        desktop_image: d.background_image || d.desktop_image || '',
+        mobile_image: d.mobile_image || '',
+        button_text: d.button_text || 'HEMEN KATIL',
+        target_url: d.button_url || d.target_url || '/giveaways',
+        sort_order: d.sort_order || 0,
+        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+      }));
+      setStored(STORAGE_KEYS.HERO_SLIDES, mappedHeroSlides, true);
+    }
+
+    let mappedBanners: Banner[] = [];
+    if (Array.isArray(banners) && banners.length > 0) {
+      mappedBanners = banners.map((d: any, idx: number) => {
+        const rawPos = String(d.location || d.position || '').trim().toLowerCase();
+        let pos: BannerPosition = 'left';
+        if (rawPos.includes('right') || rawPos.includes('sag') || rawPos.includes('sağ')) {
+          pos = 'right';
+        } else if (rawPos.includes('bottom') || rawPos.includes('alt')) {
+          pos = 'home_bottom';
+        } else if (rawPos.includes('top') || rawPos.includes('ust') || rawPos.includes('üst')) {
+          pos = 'home_top';
+        } else if (rawPos.includes('left') || rawPos.includes('sol')) {
+          pos = 'left';
+        } else {
+          // If ambiguous, alternate between left and right for side banners
+          pos = idx % 2 === 0 ? 'left' : 'right';
+        }
+
+        return {
+          id: d.id,
+          name: d.title || d.name || 'Banner',
+          image_url: d.image_url,
+          target_url: d.target_url || '/',
+          position: pos,
+          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+          sort_order: d.sort_order || 0,
+          clicks_count: d.clicks || d.clicks_count || 0,
+        };
+      });
+      setStored(STORAGE_KEYS.BANNERS, mappedBanners, true);
+    } else {
+      mappedBanners = getStored<Banner[]>(STORAGE_KEYS.BANNERS, initialBanners);
+      if (!mappedBanners || mappedBanners.length === 0) {
+        mappedBanners = initialBanners;
+      }
+      setStored(STORAGE_KEYS.BANNERS, mappedBanners, true);
+    }
+
+    let mappedSocials: SocialLink[] = [];
+    if (Array.isArray(social_links)) {
+      mappedSocials = social_links.map((d: any) => ({
+        id: d.id,
+        platform: d.platform,
+        title: d.title,
+        subtitle: d.subtitle || 'Katıl',
+        url: d.url,
+        icon: d.icon || 'Send',
+        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+        sort_order: d.sort_order || 0,
+      }));
+      setStored(STORAGE_KEYS.SOCIAL_LINKS, mappedSocials, true);
+    }
+
+    let mappedRewards: WheelReward[] = [];
+    if (Array.isArray(wheel_rewards)) {
+      mappedRewards = wheel_rewards.map((d: any) => ({
+        id: d.id,
+        title: d.name || d.title,
+        reward_type: d.reward_type || 'coin',
+        reward_value: Number(d.coin_reward || d.reward_value || 100),
+        color: d.color || '#7C3AED',
+        probability: Number(d.probability || 10),
+        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+        sort_order: d.sort_order || 0,
+      }));
+      setStored(STORAGE_KEYS.WHEEL_REWARDS, mappedRewards, true);
+    }
+
+    const remoteEntries = Array.isArray(giveaway_entries)
+      ? (giveaway_entries as GiveawayEntry[])
+      : [];
+    if (remoteEntries.length > 0) {
+      setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, remoteEntries, true);
+    }
+    const allStoredEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+
+    let mappedGiveaways: Giveaway[] = [];
+    if (Array.isArray(giveaways)) {
+      mappedGiveaways = giveaways.map((d: any) => {
+        const winnerObj = Array.isArray(d.winners) && d.winners.length > 0 ? d.winners[0] : null;
+        const winnerName = d.winner_username || (winnerObj ? (winnerObj.username || winnerObj.name) : undefined);
+        const matchingEntriesCount = allStoredEntries.filter((e) => e.giveaway_id === d.id).length;
+        return {
+          id: d.id,
+          title: d.title || 'Çekiliş',
+          description: d.description || '',
+          image_url: d.image_url || '',
+          prize_details: d.prize || d.prize_details || 'Ödül',
+          start_at: d.created_at || new Date().toISOString(),
+          end_at: d.end_date || d.end_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+          winner_count: d.total_winners || d.winner_count || 1,
+          entries_count: Math.max(Number(d.entries_count) || 0, matchingEntriesCount),
+          is_completed: Boolean(d.is_completed || winnerName),
+          winner_username: winnerName,
+          winner_id: d.winner_id || (winnerObj ? winnerObj.id : undefined),
+          winner_announced_at: d.winner_announced_at || (winnerObj ? winnerObj.date : undefined),
+          winner_note: d.winner_note || (winnerObj ? winnerObj.note : undefined),
+        };
+      });
+      setStored(STORAGE_KEYS.GIVEAWAYS, mappedGiveaways, true);
+    }
+
+    let mappedProducts: StoreProduct[] = [];
+    if (Array.isArray(store_products)) {
+      mappedProducts = store_products.map((d: any) => ({
+        id: d.id,
+        name: d.title || d.name,
+        description: d.description || '',
+        image_url: d.image_url || '',
+        coin_price: d.price_coins || d.coin_price || 100,
+        stock: d.stock || 50,
+        category: d.category || 'digital',
+        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+        sort_order: d.sort_order || 0,
+      }));
+      setStored(STORAGE_KEYS.STORE_PRODUCTS, mappedProducts, true);
+    }
+
+    return {
+      settings: mappedSettings,
+      sponsors: mappedSponsors,
+      heroSlides: mappedHeroSlides,
+      banners: mappedBanners,
+      socialLinks: mappedSocials,
+      wheelRewards: mappedRewards,
+      giveaways: mappedGiveaways,
+      storeProducts: mappedProducts,
+    };
+  },
+
+  // --- Preload / Hybrid Portal Data from Database ---
   async preloadAll(): Promise<{
     sponsors: Sponsor[];
     heroSlides: HeroSlide[];
@@ -110,201 +357,71 @@ export const db = {
     storeProducts: StoreProduct[];
     settings: SiteSettings;
   } | null> {
+    // 1. Try server-side fast endpoint if available
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000);
+      const timer = setTimeout(() => controller.abort(), 2500);
       const res = await fetch('/api/portal/data', { signal: controller.signal });
       clearTimeout(timer);
 
       if (res.ok) {
         const json = await res.json();
         if (json.status === 'ok' && json.data) {
-          const {
-            settings,
-            sponsors,
-            hero_slides,
-            banners,
-            social_links,
-            wheel_rewards,
-            giveaways,
-            store_products,
-            giveaway_entries,
-          } = json.data;
-
-          let mappedSettings = initialSiteSettings;
-          if (settings && Array.isArray(settings) && settings.length > 0) {
-            const gen = settings.find((s: any) => s.setting_key === 'general');
-            if (gen?.setting_value) {
-              mappedSettings = { ...initialSiteSettings, ...gen.setting_value };
-              setStored(STORAGE_KEYS.SITE_SETTINGS, mappedSettings, true);
-            }
-          }
-
-          let mappedSponsors: Sponsor[] = [];
-          if (Array.isArray(sponsors)) {
-            mappedSponsors = sponsors.map((d: any) => ({
-              id: d.id,
-              name: d.name,
-              slug: d.slug,
-              logo_url: d.logo_url,
-              banner_url: d.banner_url || '',
-              bonus_text: d.bonus_text || '',
-              description: d.full_review || d.description || '',
-              short_description: d.short_desc || d.short_description || '',
-              website_url: d.direct_url || d.website_url || 'https://example.com',
-              button_text: d.button_text || 'DETAYLARI GÖR',
-              rating: Number(d.rating || 4.8),
-              featured: d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured),
-              verified: d.is_active !== false,
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-              sort_order: d.sort_order || 0,
-              stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
-                { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-                { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
-                { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
-              ],
-              features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
-                { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
-                { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
-              ],
-            }));
-            setStored(STORAGE_KEYS.SPONSORS, mappedSponsors, true);
-          }
-
-          let mappedHeroSlides: HeroSlide[] = [];
-          if (Array.isArray(hero_slides)) {
-            mappedHeroSlides = hero_slides.map((d: any) => ({
-              id: d.id,
-              title: d.title,
-              subtitle: d.subtitle || '',
-              desktop_image: d.background_image || d.desktop_image || '',
-              mobile_image: d.mobile_image || '',
-              button_text: d.button_text || 'HEMEN KATIL',
-              target_url: d.button_url || d.target_url || '/giveaways',
-              sort_order: d.sort_order || 0,
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-            }));
-            setStored(STORAGE_KEYS.HERO_SLIDES, mappedHeroSlides, true);
-          }
-
-          let mappedBanners: Banner[] = [];
-          if (Array.isArray(banners)) {
-            mappedBanners = banners.map((d: any) => ({
-              id: d.id,
-              name: d.title || d.name || 'Banner',
-              image_url: d.image_url,
-              target_url: d.target_url || '/',
-              position: d.location === 'home_top' ? 'left' : (d.position || 'left'),
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-              sort_order: d.sort_order || 0,
-              clicks_count: d.clicks || d.clicks_count || 0,
-            }));
-            setStored(STORAGE_KEYS.BANNERS, mappedBanners, true);
-          }
-
-          let mappedSocials: SocialLink[] = [];
-          if (Array.isArray(social_links)) {
-            mappedSocials = social_links.map((d: any) => ({
-              id: d.id,
-              platform: d.platform,
-              title: d.title,
-              subtitle: d.subtitle || 'Katıl',
-              url: d.url,
-              icon: d.icon || 'Send',
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-              sort_order: d.sort_order || 0,
-            }));
-            setStored(STORAGE_KEYS.SOCIAL_LINKS, mappedSocials, true);
-          }
-
-          let mappedRewards: WheelReward[] = [];
-          if (Array.isArray(wheel_rewards)) {
-            mappedRewards = wheel_rewards.map((d: any) => ({
-              id: d.id,
-              title: d.name || d.title,
-              reward_type: d.reward_type || 'coin',
-              reward_value: Number(d.coin_reward || d.reward_value || 100),
-              color: d.color || '#7C3AED',
-              probability: Number(d.probability || 10),
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-              sort_order: d.sort_order || 0,
-            }));
-            setStored(STORAGE_KEYS.WHEEL_REWARDS, mappedRewards, true);
-          }
-
-          const remoteEntries = Array.isArray(giveaway_entries)
-            ? (giveaway_entries as GiveawayEntry[])
-            : [];
-          if (remoteEntries.length > 0) {
-            setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, remoteEntries, true);
-          }
-          const allStoredEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
-
-          let mappedGiveaways: Giveaway[] = [];
-          if (Array.isArray(giveaways)) {
-            mappedGiveaways = giveaways.map((d: any) => {
-              const winnerObj = Array.isArray(d.winners) && d.winners.length > 0 ? d.winners[0] : null;
-              const winnerName = d.winner_username || (winnerObj ? (winnerObj.username || winnerObj.name) : undefined);
-              const matchingEntriesCount = allStoredEntries.filter((e) => e.giveaway_id === d.id).length;
-              return {
-                id: d.id,
-                title: d.title || 'Çekiliş',
-                description: d.description || '',
-                image_url: d.image_url || '',
-                prize_details: d.prize || d.prize_details || 'Ödül',
-                start_at: d.created_at || new Date().toISOString(),
-                end_at: d.end_date || d.end_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-                winner_count: d.total_winners || d.winner_count || 1,
-                entries_count: Math.max(Number(d.entries_count) || 0, matchingEntriesCount),
-                is_completed: Boolean(d.is_completed || winnerName),
-                winner_username: winnerName,
-                winner_id: d.winner_id || (winnerObj ? winnerObj.id : undefined),
-                winner_announced_at: d.winner_announced_at || (winnerObj ? winnerObj.date : undefined),
-                winner_note: d.winner_note || (winnerObj ? winnerObj.note : undefined),
-              };
-            });
-            setStored(STORAGE_KEYS.GIVEAWAYS, mappedGiveaways, true);
-          }
-
-          let mappedProducts: StoreProduct[] = [];
-          if (Array.isArray(store_products)) {
-            mappedProducts = store_products.map((d: any) => ({
-              id: d.id,
-              name: d.title || d.name,
-              description: d.description || '',
-              image_url: d.image_url || '',
-              coin_price: d.price_coins || d.coin_price || 100,
-              stock: d.stock || 50,
-              category: d.category || 'digital',
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-              sort_order: d.sort_order || 0,
-            }));
-            setStored(STORAGE_KEYS.STORE_PRODUCTS, mappedProducts, true);
-          }
-
-          return {
-            settings: mappedSettings,
-            sponsors: mappedSponsors,
-            heroSlides: mappedHeroSlides,
-            banners: mappedBanners,
-            socialLinks: mappedSocials,
-            wheelRewards: mappedRewards,
-            giveaways: mappedGiveaways,
-            storeProducts: mappedProducts,
-          };
+          return this.parseAndCachePortalData(json.data);
         }
       }
     } catch {
-      // ignore
+      // Ignore: fall through to direct Supabase client queries
     }
+
+    // 2. Direct Supabase Client Query (Works on static hosting, cPanel, Hostinger, Vercel, Netlify, etc.)
+    if (isSupabaseReady()) {
+      try {
+        const [
+          settingsRes,
+          sponsorsRes,
+          heroRes,
+          bannersRes,
+          socialRes,
+          rewardsRes,
+          giveawaysRes,
+          storeRes,
+          entriesRes,
+        ] = await Promise.all([
+          supabase.from('site_settings').select('*'),
+          supabase.from('sponsors').select('*').order('sort_order', { ascending: true }),
+          supabase.from('hero_slides').select('*').order('sort_order', { ascending: true }),
+          supabase.from('banners').select('*').order('sort_order', { ascending: true }),
+          supabase.from('social_links').select('*').order('sort_order', { ascending: true }),
+          supabase.from('wheel_rewards').select('*').order('sort_order', { ascending: true }),
+          supabase.from('giveaways').select('*').order('created_at', { ascending: false }),
+          supabase.from('store_products').select('*').order('sort_order', { ascending: true }),
+          supabase.from('giveaway_entries').select('*').order('created_at', { ascending: false }).limit(200),
+        ]);
+
+        const rawData = {
+          settings: settingsRes.data || [],
+          sponsors: sponsorsRes.data || [],
+          hero_slides: heroRes.data || [],
+          banners: bannersRes.data || [],
+          social_links: socialRes.data || [],
+          wheel_rewards: rewardsRes.data || [],
+          giveaways: giveawaysRes.data || [],
+          store_products: storeRes.data || [],
+          giveaway_entries: entriesRes.data || [],
+        };
+
+        return this.parseAndCachePortalData(rawData);
+      } catch (err) {
+        console.warn('Direct Supabase preloadAll error:', err);
+      }
+    }
+
     return null;
   },
 
-  // --- Site Settings ---
+  // --- Site Settings (Database Authoritative) ---
   async getSettings(): Promise<SiteSettings> {
-    const localStored = getStored<SiteSettings>(STORAGE_KEYS.SITE_SETTINGS, initialSiteSettings);
-
     if (isSupabaseReady()) {
       try {
         const { data, error } = await withTimeout(
@@ -325,19 +442,11 @@ export const db = {
           return merged;
         }
       } catch (err) {
-        console.warn('Supabase getSettings error, fallback to local', err);
+        console.warn('Supabase getSettings error:', err);
       }
     }
 
-    const stored = { ...initialSiteSettings, ...localStored };
-    if (!stored.site_name || stored.site_name === 'SPONSORHUB' || stored.site_name === 'SponsorHub') {
-      stored.site_name = 'SHELBYONLINE';
-      stored.logo_text = 'SHELBYONLINE';
-      stored.site_title = 'ShelbyOnline | Premium Sponsor & Kampanya Platformu';
-      stored.footer_text = 'ShelbyOnline, doğrulanmış eğlence ve sponsorluk ağlarının en güncel bonuslarını sunan bağımsız bir topluluk portalıdır. 18 yaşından küçüklerin katılımı yasaktır.';
-      setStored(STORAGE_KEYS.SITE_SETTINGS, stored, true);
-    }
-    return stored;
+    return getStored<SiteSettings>(STORAGE_KEYS.SITE_SETTINGS, initialSiteSettings);
   },
 
   async updateSettings(settings: Partial<SiteSettings>): Promise<SiteSettings> {
@@ -361,11 +470,13 @@ export const db = {
         console.warn('Supabase updateSettings exception:', err);
       }
     }
+
+    await invalidateServerCache();
     await this.logAdminAction('Site Ayarları Güncellendi', 'settings', undefined, settings);
     return updated;
   },
 
-  // --- Sponsors ---
+  // --- Sponsors (Database Authoritative) ---
   async getSponsors(): Promise<Sponsor[]> {
     if (isSupabaseReady()) {
       try {
@@ -408,10 +519,11 @@ export const db = {
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getSponsors error, fallback to local', err);
+        console.warn('Supabase getSponsors error:', err);
       }
     }
-    return getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []).sort(
+    const storedSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
+    return storedSponsors.sort(
       (a, b) => a.sort_order - b.sort_order
     );
   },
@@ -434,7 +546,6 @@ export const db = {
     let saved: Sponsor;
 
     if (sponsor.id) {
-      // update
       const index = sponsors.findIndex((s) => s.id === sponsor.id);
       if (index !== -1) {
         saved = {
@@ -448,7 +559,6 @@ export const db = {
         sponsors.push(saved);
       }
     } else {
-      // create
       saved = {
         id: `sp-${Date.now()}`,
         name: sponsor.name || 'Yeni Sponsor',
@@ -508,6 +618,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction(
       sponsor.id ? 'Sponsor Güncellendi' : 'Yeni Sponsor Eklendi',
       'sponsor',
@@ -531,6 +642,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction('Sponsor Silindi', 'sponsor', id, { name: target?.name });
   },
 
@@ -546,7 +658,6 @@ export const db = {
       }
     });
 
-    // Add any missing
     sponsors.forEach((s) => {
       if (!orderedIds.includes(s.id)) {
         updated.push({ ...s, sort_order: updated.length + 1 });
@@ -564,6 +675,8 @@ export const db = {
         console.warn('Supabase reorderSponsors error:', err);
       }
     }
+
+    await invalidateServerCache();
   },
 
   async toggleSponsorActive(id: string, active: boolean): Promise<Sponsor | null> {
@@ -581,6 +694,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction(
       active ? 'Sponsor Aktifleştirildi' : 'Sponsor Pasife Alındı',
       'sponsor',
@@ -605,6 +719,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction(
       featured ? 'Sponsor Öne Çıkarıldı (VIP)' : 'Sponsor Öne Çıkarma Kaldırıldı',
       'sponsor',
@@ -614,7 +729,7 @@ export const db = {
     return sponsors[index];
   },
 
-  // --- Hero Slides ---
+  // --- Hero Slides (Database Authoritative) ---
   async getHeroSlides(): Promise<HeroSlide[]> {
     if (isSupabaseReady()) {
       try {
@@ -642,10 +757,11 @@ export const db = {
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getHeroSlides error, fallback to local', err);
+        console.warn('Supabase getHeroSlides error:', err);
       }
     }
-    return getStored<HeroSlide[]>(STORAGE_KEYS.HERO_SLIDES, []).sort(
+    const storedSlides = getStored<HeroSlide[]>(STORAGE_KEYS.HERO_SLIDES, []);
+    return storedSlides.sort(
       (a, b) => a.sort_order - b.sort_order
     );
   },
@@ -704,6 +820,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction(slide.id ? 'Slide Güncellendi' : 'Slide Eklendi', 'slide', saved.id);
     return saved;
   },
@@ -720,10 +837,11 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction('Slide Silindi', 'slide', id);
   },
 
-  // --- Banners ---
+  // --- Banners (Database Authoritative) ---
   async getBanners(): Promise<Banner[]> {
     if (isSupabaseReady()) {
       try {
@@ -734,26 +852,44 @@ export const db = {
             .order('sort_order', { ascending: true }),
           8000
         );
-        if (!error && Array.isArray(data)) {
-          const mapped = data.map((d: any) => ({
-            ...d,
-            id: d.id,
-            name: d.title || d.name || 'Banner',
-            image_url: d.image_url,
-            target_url: d.target_url || '/',
-            position: d.location === 'home_top' ? 'left' : (d.position || 'left'),
-            active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-            sort_order: d.sort_order || 0,
-            clicks_count: d.clicks || d.clicks_count || 0,
-          })) as Banner[];
+        if (!error && Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((d: any, idx: number) => {
+            const rawPos = String(d.location || d.position || '').trim().toLowerCase();
+            let pos: BannerPosition = 'left';
+            if (rawPos.includes('right') || rawPos.includes('sag') || rawPos.includes('sağ')) {
+              pos = 'right';
+            } else if (rawPos.includes('bottom') || rawPos.includes('alt')) {
+              pos = 'home_bottom';
+            } else if (rawPos.includes('top') || rawPos.includes('ust') || rawPos.includes('üst')) {
+              pos = 'home_top';
+            } else if (rawPos.includes('left') || rawPos.includes('sol')) {
+              pos = 'left';
+            } else {
+              pos = idx % 2 === 0 ? 'left' : 'right';
+            }
+
+            return {
+              ...d,
+              id: d.id,
+              name: d.title || d.name || 'Banner',
+              image_url: d.image_url,
+              target_url: d.target_url || '/',
+              position: pos,
+              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+              sort_order: d.sort_order || 0,
+              clicks_count: d.clicks || d.clicks_count || 0,
+            };
+          }) as Banner[];
           setStored(STORAGE_KEYS.BANNERS, mapped, true);
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getBanners error, fallback to local', err);
+        console.warn('Supabase getBanners error:', err);
       }
     }
-    return getStored<Banner[]>(STORAGE_KEYS.BANNERS, []).sort(
+    const storedBanners = getStored<Banner[]>(STORAGE_KEYS.BANNERS, initialBanners);
+    const finalBanners = (storedBanners && storedBanners.length > 0) ? storedBanners : initialBanners;
+    return finalBanners.sort(
       (a, b) => a.sort_order - b.sort_order
     );
   },
@@ -800,7 +936,7 @@ export const db = {
           title: saved.name,
           image_url: saved.image_url,
           target_url: saved.target_url,
-          location: saved.position === 'left' ? 'home_top' : 'home_bottom',
+          location: saved.position || 'left',
           is_active: saved.active !== false,
           sort_order: saved.sort_order || 0,
           clicks: saved.clicks_count || 0,
@@ -811,6 +947,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction(banner.id ? 'Banner Güncellendi' : 'Banner Eklendi', 'banner', saved.id);
     return saved;
   },
@@ -827,10 +964,11 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction('Banner Silindi', 'banner', id);
   },
 
-  // --- Social Links ---
+  // --- Social Links (Database Authoritative) ---
   async getSocialLinks(): Promise<SocialLink[]> {
     if (isSupabaseReady()) {
       try {
@@ -857,10 +995,11 @@ export const db = {
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getSocialLinks error, fallback to local', err);
+        console.warn('Supabase getSocialLinks error:', err);
       }
     }
-    return getStored<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, []).sort(
+    const storedSocials = getStored<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, []);
+    return storedSocials.sort(
       (a, b) => a.sort_order - b.sort_order
     );
   },
@@ -917,6 +1056,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction('Sosyal Link Güncellendi', 'social_link', saved.id);
     return saved;
   },
@@ -925,7 +1065,6 @@ export const db = {
     setStored(STORAGE_KEYS.SOCIAL_LINKS, newLinks);
     if (isSupabaseReady()) {
       try {
-        // Delete existing and insert fresh
         await supabase.from('social_links').delete().neq('id', 'placeholder_impossible_id');
         for (const l of newLinks) {
           await supabase.from('social_links').upsert({
@@ -943,6 +1082,7 @@ export const db = {
         console.warn('Supabase setSocialLinks error:', err);
       }
     }
+    await invalidateServerCache();
     await this.logAdminAction('Tüm Sosyal Linkler Güncellendi', 'social_links');
     return newLinks;
   },
@@ -958,9 +1098,11 @@ export const db = {
         console.warn('Supabase deleteSocialLink error:', err);
       }
     }
+
+    await invalidateServerCache();
   },
 
-  // --- Wheel Rewards & Spins ---
+  // --- Wheel Rewards & Spins (Database Authoritative) ---
   async getWheelRewards(): Promise<WheelReward[]> {
     if (isSupabaseReady()) {
       try {
@@ -987,10 +1129,11 @@ export const db = {
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getWheelRewards error, fallback to local', err);
+        console.warn('Supabase getWheelRewards error:', err);
       }
     }
-    return getStored<WheelReward[]>(STORAGE_KEYS.WHEEL_REWARDS, []).sort(
+    const storedRewards = getStored<WheelReward[]>(STORAGE_KEYS.WHEEL_REWARDS, []);
+    return storedRewards.sort(
       (a, b) => a.sort_order - b.sort_order
     );
   },
@@ -1049,6 +1192,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction('Çark Ödülü Güncellendi', 'wheel_reward', saved.id);
     return saved;
   },
@@ -1064,6 +1208,8 @@ export const db = {
         console.warn('Supabase deleteWheelReward error:', err);
       }
     }
+
+    await invalidateServerCache();
   },
 
   async getWheelSpins(): Promise<WheelSpin[]> {
@@ -1074,7 +1220,7 @@ export const db = {
             .from('wheel_spins')
             .select('*')
             .order('created_at', { ascending: false })
-            .limit(50),
+            .limit(100),
           8000
         );
         if (!error && Array.isArray(data)) {
@@ -1090,7 +1236,7 @@ export const db = {
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getWheelSpins error, fallback to local', err);
+        console.warn('Supabase getWheelSpins error:', err);
       }
     }
     return getStored<WheelSpin[]>(STORAGE_KEYS.WHEEL_SPINS, []);
@@ -1105,7 +1251,7 @@ export const db = {
       throw new Error('Aktif çark ödülü bulunamadı');
     }
 
-    // Check if user already spun today
+    // Check if user already spun today in database
     const userTodaySpin = spins.find(
       (s) => s.user_id === userId && new Date(s.created_at).toDateString() === today
     );
@@ -1132,7 +1278,7 @@ export const db = {
       }
     }
 
-    // Save spin
+    // Save spin to database
     const newSpin: WheelSpin = {
       id: `spin-${Date.now()}`,
       user_id: userId,
@@ -1162,7 +1308,7 @@ export const db = {
       }
     }
 
-    // Update user balance if coin
+    // Update user balance directly in database if coin
     if (selected.reward_type === 'coin' && selected.reward_value > 0) {
       await this.addCoins(userId, selected.reward_value);
     }
@@ -1173,7 +1319,7 @@ export const db = {
     };
   },
 
-  // --- 7-Day Login Streak ---
+  // --- 7-Day Login Streak (Database Authoritative) ---
   async getUserStreak(userId: string): Promise<UserStreakInfo> {
     const allStreaks = getStored<Record<string, UserStreakInfo>>(STORAGE_KEYS.USER_STREAKS, {});
     let userStreak = allStreaks[userId] || {
@@ -1201,10 +1347,10 @@ export const db = {
             streak_history: Array.isArray(data.streak_history) ? data.streak_history : [],
           };
           allStreaks[userId] = userStreak;
-          setStored(STORAGE_KEYS.USER_STREAKS, allStreaks);
+          setStored(STORAGE_KEYS.USER_STREAKS, allStreaks, true);
         }
       } catch (err) {
-        console.warn('Supabase getUserStreak error, fallback to local', err);
+        console.warn('Supabase getUserStreak error:', err);
       }
     }
 
@@ -1218,7 +1364,6 @@ export const db = {
     const isClaimedToday = userStreak.last_claimed_date === todayKey;
     let currentStreak = userStreak.current_streak || 0;
 
-    // If not claimed today and not claimed yesterday, streak broke back to 0 (next claim will be Day 1)
     if (!isClaimedToday && userStreak.last_claimed_date && userStreak.last_claimed_date !== yesterdayKey) {
       currentStreak = 0;
     }
@@ -1256,20 +1401,17 @@ export const db = {
     const d = new Date();
     const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-    // If streak was at 7 or reset to 0, start from 1. Otherwise increment.
     const nextStreak = (currentInfo.current_streak >= 7 || currentInfo.current_streak === 0) ? 1 : currentInfo.current_streak + 1;
     
-    // Find reward for this day
     const reward = streakDays.find((r) => r.day === nextStreak) || streakDays[nextStreak - 1] || {
       day: nextStreak,
       reward_coins: 50 * nextStreak,
       label: `${50 * nextStreak} Coin`,
     };
 
-    // Add coins
+    // Add coins directly to Supabase
     const newBalance = await this.addCoins(userId, reward.reward_coins);
 
-    // Save updated streak
     const historyItem = {
       day: nextStreak,
       claimed_at: new Date().toISOString(),
@@ -1302,7 +1444,6 @@ export const db = {
       }
     }
 
-    // Log admin / activity
     await this.logAdminAction(
       `${nextStreak}. Gün Giriş Bonusu Alındı (+${reward.reward_coins} Coin)`,
       'user_streak',
@@ -1319,7 +1460,7 @@ export const db = {
     };
   },
 
-  // --- Giveaways ---
+  // --- Giveaways (Database Authoritative) ---
   async getGiveaways(): Promise<Giveaway[]> {
     if (isSupabaseReady()) {
       try {
@@ -1331,7 +1472,7 @@ export const db = {
           8000
         );
         if (!error && Array.isArray(data)) {
-          const allStoredEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+          const allStoredEntries = await this.getGiveawayEntries();
           const remoteGiveaways = data.map((d: any) => {
             const winnerObj = Array.isArray(d.winners) && d.winners.length > 0 ? d.winners[0] : null;
             const winnerName = d.winner_username || (winnerObj ? (winnerObj.username || winnerObj.name) : undefined);
@@ -1359,7 +1500,7 @@ export const db = {
           return remoteGiveaways;
         }
       } catch (err) {
-        console.warn('Supabase getGiveaways error, fallback to local', err);
+        console.warn('Supabase getGiveaways error:', err);
       }
     }
 
@@ -1430,7 +1571,6 @@ export const db = {
       giveaways.unshift(saved);
     }
 
-    // Save locally first
     setStored(STORAGE_KEYS.GIVEAWAYS, giveaways);
 
     if (isSupabaseReady()) {
@@ -1462,16 +1602,14 @@ export const db = {
         const { error: upsertErr } = await supabase.from('giveaways').upsert(extendedPayload);
         if (upsertErr) {
           console.warn('Extended giveaways upsert error, falling back to base schema:', upsertErr);
-          const { error: baseErr } = await supabase.from('giveaways').upsert(basePayload);
-          if (baseErr) {
-            console.warn('Base giveaways upsert error:', baseErr);
-          }
+          await supabase.from('giveaways').upsert(basePayload);
         }
       } catch (err) {
         console.warn('Supabase saveGiveaway error:', err);
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction(giveaway.id ? 'Çekiliş Güncellendi' : 'Yeni Çekiliş Oluşturuldu', 'giveaway', saved.id);
     return saved;
   },
@@ -1544,11 +1682,12 @@ export const db = {
         console.warn('Supabase deleteGiveaway error:', err);
       }
     }
+
+    await invalidateServerCache();
   },
 
   // --- Giveaway Templates ---
   async getGiveawayTemplates(): Promise<GiveawayTemplate[]> {
-    const local = getStored<GiveawayTemplate[]>(STORAGE_KEYS.GIVEAWAY_TEMPLATES, initialGiveawayTemplates);
     if (isSupabaseReady()) {
       try {
         const { data, error } = await withTimeout(
@@ -1556,21 +1695,21 @@ export const db = {
             .from('giveaway_templates')
             .select('*')
             .order('created_at', { ascending: true }),
-          3000
+          5000
         );
         if (!error && Array.isArray(data) && data.length > 0) {
           setStored(STORAGE_KEYS.GIVEAWAY_TEMPLATES, data, true);
           return data as GiveawayTemplate[];
         }
       } catch (err) {
-        console.warn('Supabase getGiveawayTemplates fallback to local:', err);
+        console.warn('Supabase getGiveawayTemplates fallback:', err);
       }
     }
-    return local;
+    return getStored<GiveawayTemplate[]>(STORAGE_KEYS.GIVEAWAY_TEMPLATES, initialGiveawayTemplates);
   },
 
   async saveGiveawayTemplate(template: GiveawayTemplate): Promise<GiveawayTemplate> {
-    const templates = getStored<GiveawayTemplate[]>(STORAGE_KEYS.GIVEAWAY_TEMPLATES, initialGiveawayTemplates);
+    const templates = await this.getGiveawayTemplates();
     const targetId = template.id || `tpl-${Date.now()}`;
     const idx = templates.findIndex((t) => t.id === targetId);
     let saved: GiveawayTemplate;
@@ -1578,10 +1717,7 @@ export const db = {
       saved = { ...templates[idx], ...template, id: targetId };
       templates[idx] = saved;
     } else {
-      saved = {
-        ...template,
-        id: targetId,
-      };
+      saved = { ...template, id: targetId };
       templates.push(saved);
     }
     setStored(STORAGE_KEYS.GIVEAWAY_TEMPLATES, templates);
@@ -1607,9 +1743,8 @@ export const db = {
   },
 
   async deleteGiveawayTemplate(id: string): Promise<void> {
-    const templates = getStored<GiveawayTemplate[]>(STORAGE_KEYS.GIVEAWAY_TEMPLATES, initialGiveawayTemplates);
-    const filtered = templates.filter((t) => t.id !== id);
-    setStored(STORAGE_KEYS.GIVEAWAY_TEMPLATES, filtered);
+    const templates = await this.getGiveawayTemplates();
+    setStored(STORAGE_KEYS.GIVEAWAY_TEMPLATES, templates.filter((t) => t.id !== id));
 
     if (isSupabaseReady()) {
       try {
@@ -1635,6 +1770,7 @@ export const db = {
     return initialGiveawayTemplates;
   },
 
+  // --- Giveaway Entries (Database Authoritative) ---
   async getGiveawayEntries(): Promise<GiveawayEntry[]> {
     if (isSupabaseReady()) {
       try {
@@ -1650,14 +1786,24 @@ export const db = {
           return data as GiveawayEntry[];
         }
       } catch (err) {
-        console.warn('Supabase getGiveawayEntries error, fallback to local', err);
+        console.warn('Supabase getGiveawayEntries error:', err);
       }
     }
     return getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
   },
 
   async enterGiveaway(giveawayId: string, userId: string, username: string): Promise<{ success: boolean; message: string }> {
-    const entries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+    // 1. Check if giveaway has completed or expired
+    const allGiveaways = await this.getGiveaways();
+    const targetG = allGiveaways.find((g) => g.id === giveawayId);
+    if (targetG) {
+      const isExpired = targetG.is_completed || (targetG.end_at && new Date(targetG.end_at).getTime() <= Date.now());
+      if (isExpired) {
+        return { success: false, message: 'Bu çekilişin katılım süresi dolmuştur. Katılım sağlanamaz.' };
+      }
+    }
+
+    const entries = await this.getGiveawayEntries();
     const cleanUsername = (username || 'Kullanıcı').trim();
     const existing = entries.find(
       (e) => e.giveaway_id === giveawayId && (e.user_id === userId || (cleanUsername && e.username?.toLowerCase() === cleanUsername.toLowerCase()))
@@ -1676,15 +1822,7 @@ export const db = {
     entries.push(newEntry);
     setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, entries);
 
-    // Update count on giveaway in local storage immediately
-    const giveaways = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []);
-    const target = giveaways.find((g) => g.id === giveawayId);
-    if (target) {
-      target.entries_count = entries.filter((e) => e.giveaway_id === giveawayId).length;
-      setStored(STORAGE_KEYS.GIVEAWAYS, giveaways);
-    }
-
-    // Try server-side join endpoint for instant Supabase sync & cache invalidation
+    // Try server-side join endpoint for instant Supabase sync & duplicate check
     try {
       const res = await fetch('/api/giveaways/join', {
         method: 'POST',
@@ -1700,9 +1838,16 @@ export const db = {
         if (json.already_joined) {
           return { success: false, message: 'Bu çekilişe zaten katıldınız!' };
         }
+        if (json.expired) {
+          return { success: false, message: 'Bu çekilişin katılım süresi dolmuştur. Katılım sağlanamaz.' };
+        }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.message) {
+          return { success: false, message: errJson.message };
+        }
       }
     } catch {
-      // Fallback direct Supabase insert
       if (isSupabaseReady()) {
         try {
           await supabase.from('giveaway_entries').insert({
@@ -1713,12 +1858,12 @@ export const db = {
             created_at: newEntry.created_at,
           });
         } catch (err) {
-          console.warn('Supabase giveaway_entries fallback error:', err);
+          console.warn('Supabase giveaway_entries insert error:', err);
         }
       }
     }
 
-    // Notify components of updated giveaways
+    await invalidateServerCache();
     window.dispatchEvent(
       new CustomEvent('sponsorhub_db_change', {
         detail: { key: 'sponsorhub_giveaways_v1' },
@@ -1728,7 +1873,7 @@ export const db = {
     return { success: true, message: '🎉 Çekilişe başarıyla katıldınız! Bol şans.' };
   },
 
-  // --- Store Products & Orders ---
+  // --- Store Products & Orders (Database Authoritative) ---
   async getStoreProducts(): Promise<StoreProduct[]> {
     if (isSupabaseReady()) {
       try {
@@ -1756,10 +1901,11 @@ export const db = {
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getStoreProducts error, fallback to local', err);
+        console.warn('Supabase getStoreProducts error:', err);
       }
     }
-    return getStored<StoreProduct[]>(STORAGE_KEYS.STORE_PRODUCTS, []).sort(
+    const storedProducts = getStored<StoreProduct[]>(STORAGE_KEYS.STORE_PRODUCTS, []);
+    return storedProducts.sort(
       (a, b) => a.sort_order - b.sort_order
     );
   },
@@ -1819,6 +1965,7 @@ export const db = {
       }
     }
 
+    await invalidateServerCache();
     await this.logAdminAction('Mağaza Ürünü Güncellendi', 'product', saved.id);
     return saved;
   },
@@ -1834,9 +1981,39 @@ export const db = {
         console.warn('Supabase deleteStoreProduct error:', err);
       }
     }
+
+    await invalidateServerCache();
   },
 
   async getStoreOrders(): Promise<StoreOrder[]> {
+    if (isSupabaseReady()) {
+      try {
+        const { data, error } = await withTimeout(
+          supabase
+            .from('store_orders')
+            .select('*')
+            .order('created_at', { ascending: false }),
+          8000
+        );
+        if (!error && Array.isArray(data)) {
+          const mapped = data.map((d: any) => ({
+            id: d.id,
+            user_id: d.user_id,
+            username: d.delivery_info?.username || 'Kullanıcı',
+            product_id: d.product_id,
+            product_name: d.product_title || 'Ürün',
+            coin_price: d.price_coins || 0,
+            status: d.status || 'completed',
+            delivery_note: typeof d.delivery_info === 'string' ? d.delivery_info : (d.delivery_info?.note || 'Dijital teslimat tamamlandı.'),
+            created_at: d.created_at,
+          })) as StoreOrder[];
+          setStored(STORAGE_KEYS.STORE_ORDERS, mapped, true);
+          return mapped;
+        }
+      } catch (err) {
+        console.warn('Supabase getStoreOrders error:', err);
+      }
+    }
     return getStored<StoreOrder[]>(STORAGE_KEYS.STORE_ORDERS, []);
   },
 
@@ -1856,16 +2033,15 @@ export const db = {
       };
     }
 
-    // Deduct coins
+    // Deduct coins directly from Supabase profile
     await this.addCoins(userId, -product.coin_price);
 
-    // Decrease stock
+    // Decrease stock in Supabase store_products
     product.stock -= 1;
     await this.saveStoreProduct(product);
 
-    // Add order
-    const orders = await this.getStoreOrders();
-    orders.unshift({
+    // Add order directly to Supabase store_orders
+    const newOrder: StoreOrder = {
       id: `ord-${Date.now()}`,
       user_id: userId,
       username,
@@ -1875,13 +2051,40 @@ export const db = {
       status: 'completed',
       delivery_note: deliveryNote || 'Dijital kodunuz profilinize tanımlandı.',
       created_at: new Date().toISOString(),
-    });
+    };
+
+    const orders = await this.getStoreOrders();
+    orders.unshift(newOrder);
     setStored(STORAGE_KEYS.STORE_ORDERS, orders);
+
+    if (isSupabaseReady()) {
+      try {
+        await supabase.from('store_orders').insert({
+          id: newOrder.id,
+          user_id: userId,
+          product_id: productId,
+          product_title: product.name,
+          price_coins: product.coin_price,
+          status: 'completed',
+          delivery_info: JSON.stringify({ username, note: newOrder.delivery_note }),
+          created_at: newOrder.created_at,
+        });
+      } catch (err) {
+        console.warn('Supabase store_orders insert error:', err);
+      }
+    }
+
+    await this.logAdminAction(
+      `Mağaza Siparişi Alındı: ${product.name}`,
+      'store_order',
+      newOrder.id,
+      { user_id: userId, username, product_name: product.name, price: product.coin_price }
+    );
 
     return { success: true, message: `Tebrikler! ${product.name} siparişiniz oluşturuldu.` };
   },
 
-  // --- Profiles & Auth ---
+  // --- Profiles & Auth (Database Authoritative) ---
   async getProfiles(): Promise<Profile[]> {
     if (isSupabaseReady()) {
       try {
@@ -1919,7 +2122,7 @@ export const db = {
           return mapped;
         }
       } catch (err) {
-        console.warn('Supabase getProfiles error, fallback to local', err);
+        console.warn('Supabase getProfiles error:', err);
       }
     }
     return getStored<Profile[]>(STORAGE_KEYS.PROFILES, []);
@@ -1972,7 +2175,6 @@ export const db = {
       }
     }
 
-    // Also trigger server-side sync to guarantee consistency
     try {
       fetch('/api/telegram/sync-profile', {
         method: 'POST',
@@ -2026,7 +2228,7 @@ export const db = {
         });
       }
     } catch (err) {
-      console.warn('Click tracking error (non-blocking):', err);
+      console.warn('Click tracking error:', err);
     }
   },
 
@@ -2051,31 +2253,85 @@ export const db = {
     }
   },
 
-  // --- Admin Logs ---
+  // --- Admin Logs (Database Authoritative) ---
   async getAdminLogs(): Promise<AdminLog[]> {
+    if (isSupabaseReady()) {
+      try {
+        const { data, error } = await withTimeout(
+          supabase
+            .from('admin_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(100),
+          8000
+        );
+        if (!error && Array.isArray(data)) {
+          const mapped = data.map((d: any) => ({
+            id: d.id,
+            admin_username: d.username || 'Admin',
+            action: d.action,
+            entity_type: d.target_type || 'system',
+            entity_id: d.target_id || undefined,
+            details: d.details || undefined,
+            created_at: d.created_at,
+          })) as AdminLog[];
+          setStored(STORAGE_KEYS.ADMIN_LOGS, mapped, true);
+          return mapped;
+        }
+      } catch (err) {
+        console.warn('Supabase getAdminLogs error:', err);
+      }
+    }
     return getStored<AdminLog[]>(STORAGE_KEYS.ADMIN_LOGS, []);
   },
 
   async logAdminAction(action: string, entity_type: string, entity_id?: string, details?: Record<string, unknown>, admin_username?: string): Promise<void> {
-    const logs = await this.getAdminLogs();
-    logs.unshift({
-      id: `log-${Date.now()}`,
+    const newLog: AdminLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       admin_username: admin_username || 'Admin',
       action,
       entity_type,
       entity_id,
       details,
       created_at: new Date().toISOString(),
-    });
+    };
+
+    const logs = getStored<AdminLog[]>(STORAGE_KEYS.ADMIN_LOGS, []);
+    logs.unshift(newLog);
     setStored(STORAGE_KEYS.ADMIN_LOGS, logs.slice(0, 200));
+
+    if (isSupabaseReady()) {
+      try {
+        await supabase.from('admin_logs').insert({
+          id: newLog.id,
+          username: newLog.admin_username,
+          action: newLog.action,
+          target_type: newLog.entity_type,
+          target_id: newLog.entity_id || null,
+          details: newLog.details || null,
+          created_at: newLog.created_at,
+        });
+      } catch (err) {
+        console.warn('Supabase admin_logs insert error:', err);
+      }
+    }
   },
 
   async clearAdminLogs(): Promise<void> {
     setStored(STORAGE_KEYS.ADMIN_LOGS, []);
+
+    if (isSupabaseReady()) {
+      try {
+        await supabase.from('admin_logs').delete().neq('id', 'null_impossible_id');
+      } catch (err) {
+        console.warn('Supabase clearAdminLogs error:', err);
+      }
+    }
+
     await this.logAdminAction('Tüm Sistem Logları Temizlendi', 'system');
   },
 
-  // --- Connection Diagnostics ---
+  // --- Connection Diagnostics & Seed ---
   async testConnection(): Promise<{
     connected: boolean;
     type: 'supabase' | 'local';
@@ -2096,7 +2352,7 @@ export const db = {
             .from('site_settings')
             .select('setting_key')
             .limit(1),
-          3000
+          4000
         );
         const latencyMs = Math.round(performance.now() - startTime);
 
@@ -2143,7 +2399,7 @@ export const db = {
         connected: false,
         type: 'local',
         latencyMs,
-        message: 'Supabase URL ve Anon Key henüz yapılandırılmadı. Sistem yerel depolama modunda çalışıyor.',
+        message: 'Supabase URL ve Anon Key henüz yapılandırılmadı. Sistem yerel modda çalışıyor.',
         stats: {
           sponsorsCount: sponsors.length,
           profilesCount: profiles.length,
@@ -2313,6 +2569,8 @@ export const db = {
         });
         totalInserted += 1;
       }
+
+      await invalidateServerCache();
 
       return {
         success: true,

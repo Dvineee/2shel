@@ -59,6 +59,7 @@ export interface Sponsor {
   verified: boolean;
   active: boolean;
   sort_order: number;
+  bonus_text?: string;
   bonus_code?: string;
   min_deposit?: string;
   withdrawal_speed?: string;
@@ -90,7 +91,7 @@ export interface HeroSlide {
   created_at?: string;
 }
 
-export type BannerPosition = 'left' | 'right' | 'top' | 'content';
+export type BannerPosition = 'left' | 'right' | 'top' | 'bottom' | 'home_top' | 'home_bottom' | 'content';
 
 export interface Banner {
   id: string;

@@ -18,6 +18,8 @@ interface DataContextType {
   featuredSponsors: Sponsor[];
   heroSlides: HeroSlide[];
   banners: Banner[];
+  topBanners: Banner[];
+  bottomBanners: Banner[];
   leftBanners: Banner[];
   rightBanners: Banner[];
   socialLinks: SocialLink[];
@@ -34,16 +36,16 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const initialCache = React.useMemo(() => db.getCachedData(), []);
-  const [sponsors, setSponsors] = useState<Sponsor[]>(initialCache.sponsors);
-  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(initialCache.heroSlides);
-  const [banners, setBanners] = useState<Banner[]>(initialCache.banners);
-  const [socialLinks, setSocialLinks] = useState<SocialLink[]>(initialCache.socialLinks);
-  const [wheelRewards, setWheelRewards] = useState<WheelReward[]>(initialCache.wheelRewards);
-  const [giveaways, setGiveaways] = useState<Giveaway[]>(initialCache.giveaways);
-  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>(initialCache.storeProducts);
-  const [settings, setSettings] = useState<SiteSettings>(initialCache.settings);
-  const [loading, setLoading] = useState<boolean>(false);
+  const cached = db.getCachedData();
+  const [sponsors, setSponsors] = useState<Sponsor[]>(cached.sponsors || []);
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(cached.heroSlides || []);
+  const [banners, setBanners] = useState<Banner[]>(cached.banners || []);
+  const [socialLinks, setSocialLinks] = useState<SocialLink[]>(cached.socialLinks || []);
+  const [wheelRewards, setWheelRewards] = useState<WheelReward[]>(cached.wheelRewards || []);
+  const [giveaways, setGiveaways] = useState<Giveaway[]>(cached.giveaways || []);
+  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>(cached.storeProducts || []);
+  const [settings, setSettings] = useState<SiteSettings>(cached.settings || initialSiteSettings);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const isFetchingRef = React.useRef(false);
@@ -55,27 +57,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       const preloaded = await db.preloadAll();
       if (preloaded) {
-        setSponsors(preloaded.sponsors);
-        setHeroSlides(preloaded.heroSlides);
-        setBanners(preloaded.banners);
-        setSocialLinks(preloaded.socialLinks);
-        setWheelRewards(preloaded.wheelRewards);
-        setGiveaways(preloaded.giveaways);
-        setStoreProducts(preloaded.storeProducts);
-        setSettings(preloaded.settings);
+        setSponsors(preloaded.sponsors || []);
+        setHeroSlides(preloaded.heroSlides || []);
+        setBanners(preloaded.banners || []);
+        setSocialLinks(preloaded.socialLinks || []);
+        setWheelRewards(preloaded.wheelRewards || []);
+        setGiveaways(preloaded.giveaways || []);
+        setStoreProducts(preloaded.storeProducts || []);
+        if (preloaded.settings) {
+          setSettings(preloaded.settings);
+        }
       } else {
-        const cached = db.getCachedData();
-        setSponsors(cached.sponsors);
-        setHeroSlides(cached.heroSlides);
-        setBanners(cached.banners);
-        setSocialLinks(cached.socialLinks);
-        setWheelRewards(cached.wheelRewards);
-        setGiveaways(cached.giveaways);
-        setStoreProducts(cached.storeProducts);
-        setSettings(cached.settings);
+        const [s, h, b, soc, w, g, p, set] = await Promise.all([
+          db.getSponsors(),
+          db.getHeroSlides(),
+          db.getBanners(),
+          db.getSocialLinks(),
+          db.getWheelRewards(),
+          db.getGiveaways(),
+          db.getStoreProducts(),
+          db.getSettings(),
+        ]);
+        setSponsors(s);
+        setHeroSlides(h);
+        setBanners(b);
+        setSocialLinks(soc);
+        setWheelRewards(w);
+        setGiveaways(g);
+        setStoreProducts(p);
+        setSettings(set);
       }
     } catch (err) {
-      console.error('Failed to load portal data:', err);
+      console.error('Failed to load portal data from Supabase:', err);
     } finally {
       isFetchingRef.current = false;
       setLoading(false);
@@ -91,7 +104,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         loadData();
-      }, 500);
+      }, 300);
     };
     window.addEventListener('sponsorhub_db_change', handler);
     return () => {
@@ -105,11 +118,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSettings(updated);
   };
 
-  const activeSponsors = sponsors.filter((s) => s.active);
+  const activeSponsors = sponsors.filter((s) => s.active !== false);
   const featuredSponsors = activeSponsors.filter((s) => s.featured);
-  const activeBanners = banners.filter((b) => b.active);
-  const leftBanners = activeBanners.filter((b) => b.position === 'left' || activeBanners.length === 1);
-  const rightBanners = activeBanners.filter((b) => b.position === 'right' && activeBanners.length > 1);
+  const activeBanners = banners.filter((b) => b.active !== false);
+
+  const topBanners = activeBanners.filter(
+    (b) => b.position === 'home_top' || b.position === 'top'
+  );
+  const bottomBanners = activeBanners.filter(
+    (b) => b.position === 'home_bottom' || b.position === 'bottom'
+  );
+  const leftBanners = activeBanners.filter((b) => b.position === 'left');
+  const rightBanners = activeBanners.filter((b) => b.position === 'right');
 
   return (
     <DataContext.Provider
@@ -117,14 +137,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sponsors,
         activeSponsors,
         featuredSponsors,
-        heroSlides: heroSlides.filter((s) => s.active),
+        heroSlides: heroSlides.filter((s) => s.active !== false),
         banners,
+        topBanners,
+        bottomBanners,
         leftBanners,
         rightBanners,
-        socialLinks: socialLinks.filter((s) => s.active),
+        socialLinks: socialLinks.filter((s) => s.active !== false),
         wheelRewards,
         giveaways: giveaways.filter((g) => g.active !== false || g.is_completed),
-        storeProducts: storeProducts.filter((p) => p.active),
+        storeProducts: storeProducts.filter((p) => p.active !== false),
         settings,
         loading,
         error,

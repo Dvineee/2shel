@@ -198,7 +198,7 @@ async function persistAuthCodeToSupabase(entry: TelegramCodeEntry) {
   }
 }
 
-// Fetch real Telegram User Profile Photo
+// Fetch real Telegram User Profile Photo as Base64 Data URL (100% portable across all hostings)
 async function getTelegramUserProfilePhoto(userId: number, displayName: string): Promise<string> {
   try {
     const photosRes = await telegramApiCall('getUserProfilePhotos', {
@@ -214,11 +214,20 @@ async function getTelegramUserProfilePhoto(userId: number, displayName: string):
       photosRes.result.photos.length > 0
     ) {
       const photoArray = photosRes.result.photos[0];
+      // Get highest resolution version available
       const bestPhoto = photoArray[photoArray.length - 1] || photoArray[0];
       if (bestPhoto && bestPhoto.file_id) {
         const fileRes = await telegramApiCall('getFile', { file_id: bestPhoto.file_id });
         if (fileRes && fileRes.ok && fileRes.result && fileRes.result.file_path) {
-          return `/api/telegram/avatar-proxy?file_path=${encodeURIComponent(fileRes.result.file_path)}`;
+          const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileRes.result.file_path}`;
+          const imgFetch = await fetch(fileUrl);
+          if (imgFetch.ok) {
+            const arrayBuffer = await imgFetch.arrayBuffer();
+            const base64 = Buffer.from(arrayBuffer).toString('base64');
+            const contentType = imgFetch.headers.get('content-type') || 'image/jpeg';
+            console.log(`📸 Successfully fetched and encoded Telegram photo for user ${userId} (${base64.length} bytes)`);
+            return `data:${contentType};base64,${base64}`;
+          }
         }
       }
     }
@@ -480,12 +489,13 @@ async function handleTelegramUpdate(update: any) {
 // In-memory cache for portal data to eliminate database saturation & ensure sub-10ms response times
 let cachedPortalData: any = null;
 let cachedPortalDataTime = 0;
-const PORTAL_CACHE_TTL_MS = 5000; // 5 seconds cache
+const PORTAL_CACHE_TTL_MS = 2000; // 2 seconds cache for high responsiveness
 
 // Portal Data Endpoint (Direct server-side Supabase query with caching & strict timeout)
 app.get('/api/portal/data', async (req, res) => {
   const now = Date.now();
-  if (cachedPortalData && now - cachedPortalDataTime < PORTAL_CACHE_TTL_MS) {
+  const isFreshRequested = req.query.fresh === 'true';
+  if (!isFreshRequested && cachedPortalData && now - cachedPortalDataTime < PORTAL_CACHE_TTL_MS) {
     return res.json({
       status: 'ok',
       source: 'cache',
@@ -503,7 +513,7 @@ app.get('/api/portal/data', async (req, res) => {
       try {
         const response = await fetch(url, {
           headers,
-          signal: AbortSignal.timeout(3500),
+          signal: AbortSignal.timeout(6000),
         });
         if (response.ok) {
           return await response.json();
@@ -587,6 +597,13 @@ app.get('/api/portal/data', async (req, res) => {
   }
 });
 
+// Cache Invalidation Endpoint (Ensures changes reflect instantly across the entire portal)
+app.post('/api/portal/invalidate-cache', (req, res) => {
+  cachedPortalData = null;
+  cachedPortalDataTime = 0;
+  res.json({ status: 'ok', message: 'Cache invalidated' });
+});
+
 // Dedicated Giveaway Join endpoint with server-side duplicate check & Supabase sync
 app.post('/api/giveaways/join', async (req, res) => {
   try {
@@ -605,6 +622,30 @@ app.post('/api/giveaways/join', async (req, res) => {
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
     };
+
+    // Check if giveaway is completed or expired
+    try {
+      const gCheckRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/giveaways?id=eq.${encodeURIComponent(giveaway_id)}`,
+        { headers, signal: AbortSignal.timeout(3000) }
+      );
+      if (gCheckRes.ok) {
+        const gList = await gCheckRes.json();
+        if (Array.isArray(gList) && gList.length > 0) {
+          const targetG = gList[0];
+          const isExpired = targetG.is_completed || (targetG.end_at && new Date(targetG.end_at).getTime() <= Date.now()) || (targetG.end_date && new Date(targetG.end_date).getTime() <= Date.now());
+          if (isExpired) {
+            return res.status(400).json({
+              success: false,
+              expired: true,
+              message: 'Bu çekilişin katılım süresi dolmuştur. Katılım sağlanamaz.',
+            });
+          }
+        }
+      }
+    } catch {
+      // continue
+    }
 
     // Check duplicate in Supabase
     try {
@@ -701,6 +742,38 @@ app.post('/api/telegram/webhook', async (req, res) => {
   } catch (err) {
     console.error('Webhook processing error:', err);
     res.status(500).json({ error: 'Internal webhook error' });
+  }
+});
+
+// 3.5 Sync / Refresh Telegram Profile Data for a user
+app.post('/api/telegram/sync-profile', async (req, res) => {
+  try {
+    const { telegram_id, username } = req.body;
+    if (!telegram_id && !username) {
+      return res.status(400).json({ success: false, message: 'Telegram ID veya Kullanıcı Adı gereklidir.' });
+    }
+
+    let photoUrl = '';
+    const numericId = Number(telegram_id);
+    const cleanUsername = String(username || '').replace('@', '');
+
+    if (!isNaN(numericId) && numericId > 0) {
+      photoUrl = await getTelegramUserProfilePhoto(numericId, cleanUsername || 'Shelby Üye');
+    }
+
+    if (!photoUrl && cleanUsername) {
+      photoUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(cleanUsername)}&background=24A1DE&color=ffffff&bold=true&size=256`;
+    }
+
+    res.json({
+      success: true,
+      photo_url: photoUrl,
+      telegram_username: cleanUsername,
+      telegram_id: telegram_id ? String(telegram_id) : null,
+    });
+  } catch (err: any) {
+    console.error('Error syncing profile:', err);
+    res.status(500).json({ success: false, message: 'Profil senkronizasyon hatası.' });
   }
 });
 
