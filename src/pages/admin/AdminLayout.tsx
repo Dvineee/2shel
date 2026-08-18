@@ -21,11 +21,41 @@ export const AdminLayout: React.FC = () => {
   const { user, isAdmin, loading } = useAuth();
 
   if (loading) {
-    return null;
+    return (
+      <div className="min-h-screen bg-[#070510] text-slate-100 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500"></div>
+      </div>
+    );
   }
 
   if (!isAdmin) {
-    return <Navigate to="/" replace />;
+    return (
+      <div className="min-h-screen bg-[#070510] text-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full p-8 rounded-3xl bg-[#120b24] border border-violet-800/40 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto border border-rose-500/30">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <h2 className="text-xl font-bold text-white">Yönetici Girişi Gerekli</h2>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Yönetim paneline erişmek için yetkili bir yönetici hesabıyla (Örn: <strong>@kajju66</strong> veya yönetici hesabı) giriş yapmanız gerekmektedir.
+          </p>
+          <div className="flex gap-3 pt-2">
+            <NavLink
+              to="/login"
+              className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs transition-colors flex items-center justify-center"
+            >
+              Giriş Yap
+            </NavLink>
+            <NavLink
+              to="/"
+              className="flex-1 py-2.5 rounded-xl bg-violet-950/60 border border-violet-800/40 text-slate-300 hover:text-white font-bold text-xs transition-colors flex items-center justify-center"
+            >
+              Ana Sayfa
+            </NavLink>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const menuItems = [
@@ -54,7 +84,7 @@ export const AdminLayout: React.FC = () => {
             <div>
               <span className="font-extrabold text-white text-sm">YÖNETİM PANELİ</span>
               <span className="block text-[10px] text-violet-400 font-bold uppercase">
-                {user.role} Modu
+                {user?.role || 'admin'} Modu
               </span>
             </div>
           </div>

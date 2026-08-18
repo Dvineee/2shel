@@ -248,20 +248,22 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
           </div>
         </div>
 
-        {/* 3. BOTTOM ROW: Direct "SİTEYE GİT" Button and "DETAYLAR" Link */}
+        {/* 3. BOTTOM ROW: Direct "SİTEYE GİT" Button and Optional "DETAYLAR" Link */}
         <div className="flex items-center gap-1.5 mt-auto pt-1">
-          {/* Dedicated Detaylar Button (Navigates to /site/:slug without bubbling) */}
-          <NavLink
-            to={`/site/${sponsor.slug}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              soundEngine.playClick();
-            }}
-            className="px-2 sm:px-2.5 py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-[10.5px] font-bold text-slate-300 hover:text-white bg-violet-950/60 hover:bg-violet-900/80 border border-violet-800/40 hover:border-violet-600 transition-all text-center flex items-center justify-center shrink-0 cursor-pointer min-h-[30px] sm:min-h-[34px]"
-            title={`${sponsor.name} Detaylı İnceleme`}
-          >
-            <span>Detaylar</span>
-          </NavLink>
+          {/* Dedicated Detaylar Button (Only shown if has_detail_page is true or undefined) */}
+          {sponsor.has_detail_page !== false && (
+            <NavLink
+              to={`/site/${sponsor.slug}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                soundEngine.playClick();
+              }}
+              className="px-2 sm:px-2.5 py-1.5 rounded-md sm:rounded-lg text-[9px] sm:text-[10.5px] font-bold text-slate-300 hover:text-white bg-violet-950/60 hover:bg-violet-900/80 border border-violet-800/40 hover:border-violet-600 transition-all text-center flex items-center justify-center shrink-0 cursor-pointer min-h-[30px] sm:min-h-[34px]"
+              title={`${sponsor.name} Detaylı İnceleme`}
+            >
+              <span>Detaylar</span>
+            </NavLink>
+          )}
 
           {/* Main SİTEYE GİT CTA Button */}
           <button

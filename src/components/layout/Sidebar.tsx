@@ -136,8 +136,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="h-full flex flex-col justify-between bg-[#0b0816] text-slate-200 select-none overflow-hidden">
         {/* Top Header / Brand Logo */}
         <div>
-          <div className="h-16 flex items-center justify-between px-4 border-b border-violet-900/25 bg-[#0e0a1c]/60">
-            {!collapsed ? (
+          <div
+            className={`h-16 flex items-center border-b border-violet-900/25 bg-[#0e0a1c]/60 ${
+              collapsed ? 'justify-center px-2' : 'justify-between px-4'
+            }`}
+          >
+            {!collapsed && (
               <NavLink
                 to="/"
                 onClick={() => soundEngine.playClick()}
@@ -175,35 +179,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 </div>
               </NavLink>
-            ) : (
-              <NavLink
-                to="/"
-                onClick={() => soundEngine.playClick()}
-                className="mx-auto flex items-center justify-center"
-                title={settings.site_name || 'SHELBYONLINE'}
-              >
-                {settings.logo_url ? (
-                  <img
-                    src={settings.logo_url}
-                    alt={settings.site_name || 'Logo'}
-                    className="w-8 h-8 object-contain rounded-lg"
-                  />
-                ) : (
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-600/30">
-                    <Crown className="w-5 h-5 text-white" />
-                  </div>
-                )}
-              </NavLink>
             )}
 
-            {/* Close Button on Mobile, Collapse Button on Desktop */}
+            {/* Close Button on Mobile, Collapse/Expand Button on Desktop */}
             {forMobile ? (
               <button
                 onClick={() => {
                   soundEngine.playClick();
                   if (onCloseMobile) onCloseMobile();
                 }}
-                className="p-2 rounded-xl bg-violet-950/60 text-slate-400 hover:text-white border border-violet-800/40"
+                className="p-2 rounded-xl bg-violet-950/60 text-slate-400 hover:text-white border border-violet-800/40 cursor-pointer"
                 aria-label="Menüyü Kapat"
               >
                 <X className="w-5 h-5" />
@@ -214,10 +199,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   soundEngine.playClick();
                   if (onToggleCollapse) onToggleCollapse();
                 }}
-                className="hidden lg:flex p-1.5 rounded-xl bg-violet-950/40 hover:bg-violet-800/50 text-violet-300 hover:text-white transition-colors border border-violet-800/30"
+                className="hidden lg:flex p-2 rounded-xl bg-violet-950/40 hover:bg-violet-800/50 text-violet-300 hover:text-white transition-colors border border-violet-800/30 cursor-pointer"
                 title={collapsed ? 'Menüyü Genişlet' : 'Menüyü Daralt'}
               >
-                {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-4 h-4" />}
               </button>
             )}
           </div>

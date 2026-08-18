@@ -86,7 +86,12 @@ export function getSponsorCategory(sponsor: Partial<Sponsor> | null | undefined)
  * 3. Alphabetical tie-breaker
  */
 export function sortSponsors(sponsors: Sponsor[]): Sponsor[] {
+  if (!Array.isArray(sponsors)) return [];
   return [...sponsors].sort((a, b) => {
+    if (!a && !b) return 0;
+    if (!a) return 1;
+    if (!b) return -1;
+
     const rawOrderA = a.sort_order;
     const rawOrderB = b.sort_order;
 
@@ -97,8 +102,8 @@ export function sortSponsors(sponsors: Sponsor[]): Sponsor[] {
       return numA - numB;
     }
 
-    const catA = SPONSOR_CATEGORIES[getSponsorCategory(a)].order;
-    const catB = SPONSOR_CATEGORIES[getSponsorCategory(b)].order;
+    const catA = SPONSOR_CATEGORIES[getSponsorCategory(a)]?.order ?? 99;
+    const catB = SPONSOR_CATEGORIES[getSponsorCategory(b)]?.order ?? 99;
     if (catA !== catB) {
       return catA - catB;
     }
@@ -115,7 +120,7 @@ export function groupSponsorsByCategory(sponsors: Sponsor[]): {
   vip: Sponsor[];
   trusted: Sponsor[];
 } {
-  const sorted = sortSponsors(sponsors);
+  const sorted = sortSponsors(sponsors || []);
   const result: { main: Sponsor[]; vip: Sponsor[]; trusted: Sponsor[] } = {
     main: [],
     vip: [],
@@ -123,8 +128,13 @@ export function groupSponsorsByCategory(sponsors: Sponsor[]): {
   };
 
   for (const s of sorted) {
+    if (!s) continue;
     const cat = getSponsorCategory(s);
-    result[cat].push(s);
+    if (result[cat]) {
+      result[cat].push(s);
+    } else {
+      result.trusted.push(s);
+    }
   }
 
   return result;

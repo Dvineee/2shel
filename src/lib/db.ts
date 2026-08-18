@@ -263,9 +263,9 @@ export const db = {
           rating: Number(d.rating || d.score || local?.rating || 4.8),
           category: cat,
           featured: cat === 'vip' || (d.is_vip !== undefined && d.is_vip !== null ? Boolean(d.is_vip) : (d.featured !== undefined ? Boolean(d.featured) : Boolean(local?.featured))),
-          verified: isRowActive(d) && (d.verified !== undefined ? d.verified !== false : (local?.verified !== false)),
-          active: isRowActive(d) && (local?.active !== undefined ? local.active : true),
-          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (local?.sort_order || 0),
+          verified: d.verified !== undefined ? d.verified !== false : (local?.verified !== false),
+          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== undefined ? Boolean(d.active) : (local?.active !== undefined ? Boolean(local.active) : true)),
+          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (local?.sort_order !== undefined ? local.sort_order : 0),
           bonus_code: d.bonus_code !== undefined && d.bonus_code !== null ? d.bonus_code : (local?.bonus_code || ''),
           bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null ? d.bonus_headline : (local?.bonus_headline || ''),
           badge_text: d.badge_text !== undefined && d.badge_text !== null ? d.badge_text : (local?.badge_text || ''),
@@ -280,21 +280,28 @@ export const db = {
             : (local?.payment_methods || ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete']),
           stats: resolvedStats,
           features: resolvedFeatures,
+          has_detail_page: d.has_detail_page !== undefined && d.has_detail_page !== null ? Boolean(d.has_detail_page) : (local?.has_detail_page !== undefined ? Boolean(local.has_detail_page) : true),
+          custom_review: d.custom_review || local?.custom_review || '',
+          pros: Array.isArray(d.pros) ? d.pros : (local?.pros || []),
+          cons: Array.isArray(d.cons) ? d.cons : (local?.cons || []),
+          faq: Array.isArray(d.faq) ? d.faq : (local?.faq || []),
         };
       });
 
       // Retain locally created sponsors that aren't in remote sponsors yet, unless explicitly deleted
       const deletedSet = new Set(getStored<string[]>(STORAGE_KEYS.DELETED_SPONSORS, []));
-      const remoteIds = new Set(mappedSponsors.map((s) => s.id));
+      const remoteIds = new Set(mappedSponsors.map((s) => String(s.id)));
       const remoteSlugs = new Set(mappedSponsors.map((s) => (s.slug || '').toLowerCase()));
+      const remoteNames = new Set(mappedSponsors.map((s) => (s.name || '').toLowerCase().trim()));
 
       existingLocalSponsors.forEach((loc) => {
         if (
           loc &&
           loc.id &&
-          !deletedSet.has(loc.id) &&
-          !remoteIds.has(loc.id) &&
-          !remoteSlugs.has((loc.slug || '').toLowerCase())
+          !deletedSet.has(String(loc.id)) &&
+          !remoteIds.has(String(loc.id)) &&
+          !remoteSlugs.has((loc.slug || '').toLowerCase()) &&
+          !remoteNames.has((loc.name || '').toLowerCase().trim())
         ) {
           mappedSponsors.push(loc);
         }
@@ -432,9 +439,12 @@ export const db = {
         };
       });
       setStored(STORAGE_KEYS.GIVEAWAYS, mappedGiveaways, true);
+    } else if (Array.isArray(giveaways) && giveaways.length === 0) {
+      mappedGiveaways = [];
+      setStored(STORAGE_KEYS.GIVEAWAYS, [], true);
     } else {
-      const cached = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, initialGiveaways);
-      mappedGiveaways = (cached && cached.length > 0) ? cached : initialGiveaways;
+      const cached = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []);
+      mappedGiveaways = cached || [];
     }
 
     let mappedProducts: StoreProduct[] = [];
@@ -820,15 +830,19 @@ export const db = {
       const resp = await fetch('/api/sponsors/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(saved),
+        body: JSON.stringify({ ...saved, isNew: !sponsor.id }),
       });
       if (resp.ok) {
         const json = await resp.json();
         if (json.sponsor) {
           saved = { ...saved, ...json.sponsor };
-          const idx = sponsors.findIndex((s) => s.id === saved.id || s.slug === saved.slug);
+          const idx = sponsors.findIndex(
+            (s) => s.id === saved.id || s.slug === saved.slug || (s.name && saved.name && s.name.toLowerCase().trim() === saved.name.toLowerCase().trim())
+          );
           if (idx !== -1) {
             sponsors[idx] = saved;
+          } else {
+            sponsors.push(saved);
           }
           setStored(STORAGE_KEYS.SPONSORS, sortSponsors(sponsors));
         }
@@ -870,7 +884,7 @@ export const db = {
           updated_at: new Date().toISOString(),
         };
 
-        if (saved.id && !saved.id.startsWith('sp-')) {
+        if (saved.id && !saved.id.startsWith('sp-') && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(saved.id)) {
           payload.id = saved.id;
         }
 
@@ -1943,8 +1957,21 @@ export const db = {
       giveaways.unshift(saved);
     }
 
+    // 1. Immediately store in local cache
     setStored(STORAGE_KEYS.GIVEAWAYS, giveaways);
 
+    // 2. Call authoritative server API
+    try {
+      await fetch('/api/giveaways/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saved),
+      });
+    } catch (apiErr) {
+      console.warn('API saveGiveaway warning:', apiErr);
+    }
+
+    // 3. Fallback direct write to Supabase
     if (isSupabaseReady()) {
       try {
         const basePayload = {
@@ -1964,6 +1991,10 @@ export const db = {
 
         const extendedPayload = {
           ...basePayload,
+          prize_details: saved.prize_details,
+          winner_count: saved.winner_count,
+          end_at: saved.end_at,
+          start_at: saved.start_at,
           is_completed: Boolean(saved.is_completed),
           winner_username: saved.winner_username || null,
           winner_id: saved.winner_id || null,
@@ -1973,7 +2004,6 @@ export const db = {
 
         const { error: upsertErr } = await supabase.from('giveaways').upsert(extendedPayload);
         if (upsertErr) {
-          console.warn('Extended giveaways upsert error, falling back to base schema:', upsertErr);
           await supabase.from('giveaways').upsert(basePayload);
         }
       } catch (err) {
@@ -2044,11 +2074,30 @@ export const db = {
   },
 
   async deleteGiveaway(id: string): Promise<void> {
+    // 1. Immediately update local storage and remove giveaway and entries
     const giveaways = await this.getGiveaways();
-    setStored(STORAGE_KEYS.GIVEAWAYS, giveaways.filter((g) => g.id !== id));
+    const filtered = giveaways.filter((g) => g.id !== id);
+    setStored(STORAGE_KEYS.GIVEAWAYS, filtered);
 
+    const storedEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+    const filteredEntries = storedEntries.filter((e) => e.giveaway_id !== id);
+    setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, filteredEntries, true);
+
+    // 2. Call server-side authoritative delete endpoint
+    try {
+      await fetch('/api/giveaways/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch (apiErr) {
+      console.warn('API deleteGiveaway warning:', apiErr);
+    }
+
+    // 3. Fallback direct deletion on Supabase: delete entries first to prevent foreign key errors
     if (isSupabaseReady()) {
       try {
+        await supabase.from('giveaway_entries').delete().eq('giveaway_id', id);
         await supabase.from('giveaways').delete().eq('id', id);
       } catch (err) {
         console.warn('Supabase deleteGiveaway error:', err);
@@ -2056,6 +2105,7 @@ export const db = {
     }
 
     await invalidateServerCache();
+    await this.logAdminAction('Çekiliş Silindi', 'giveaway', id);
   },
 
   // --- Giveaway Templates ---
@@ -2358,6 +2408,23 @@ export const db = {
   },
 
   async getStoreOrders(): Promise<StoreOrder[]> {
+    // 1. Try server-side authoritative merged endpoint first
+    try {
+      const res = await fetch('/api/store/orders', {
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.orders)) {
+          setStored(STORAGE_KEYS.STORE_ORDERS, json.orders, true);
+          return json.orders as StoreOrder[];
+        }
+      }
+    } catch {
+      // fallback to Supabase or local storage
+    }
+
     if (isSupabaseReady()) {
       try {
         const { data, error } = await withTimeout(
@@ -2381,12 +2448,12 @@ export const db = {
             }
 
             return {
-              id: d.id,
-              user_id: d.user_id,
+              id: String(d.id),
+              user_id: String(d.user_id),
               username: parsedInfo.username || d.username || 'Kullanıcı',
-              product_id: d.product_id,
-              product_name: d.product_title || d.product_name || 'Ürün',
-              coin_price: d.price_coins || d.coin_price || 0,
+              product_id: String(d.product_id || ''),
+              product_name: d.product_title || d.product_name || parsedInfo.product_name || 'Ürün',
+              coin_price: Number(d.price_coins || d.coin_price || parsedInfo.coin_price || 0),
               payout_type: d.payout_type || parsedInfo.payout_type || (parsedInfo.iban ? 'iban' : parsedInfo.trx_address ? 'trx' : undefined),
               payout_address: d.payout_address || parsedInfo.payout_address || parsedInfo.iban || parsedInfo.trx_address || '',
               payout_holder_name: d.payout_holder_name || parsedInfo.payout_holder_name || parsedInfo.holder_name || '',
@@ -2451,10 +2518,10 @@ export const db = {
       };
     }
 
-    // Deduct coins directly from Supabase profile
+    // Deduct coins directly from profile
     await this.addCoins(userId, -product.coin_price);
 
-    // Decrease stock in Supabase store_products
+    // Decrease stock
     product.stock = Math.max(0, product.stock - 1);
     await this.saveStoreProduct(product);
 
@@ -2485,9 +2552,20 @@ export const db = {
       created_at: new Date().toISOString(),
     };
 
-    const orders = await this.getStoreOrders();
+    const orders = getStored<StoreOrder[]>(STORAGE_KEYS.STORE_ORDERS, []);
     orders.unshift(newOrder);
     setStored(STORAGE_KEYS.STORE_ORDERS, orders);
+
+    // Send to server-side authoritative creator
+    try {
+      await fetch('/api/store/orders/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: newOrder }),
+      });
+    } catch {
+      // ignore
+    }
 
     if (isSupabaseReady()) {
       try {
@@ -2521,6 +2599,12 @@ export const db = {
       }
     );
 
+    window.dispatchEvent(
+      new CustomEvent('sponsorhub_db_change', {
+        detail: { key: STORAGE_KEYS.STORE_ORDERS },
+      })
+    );
+
     return {
       success: true,
       message: `🎉 Tebrikler! ${product.name} siparişiniz oluşturuldu ve incelenmek üzere kuyruğa alındı.`,
@@ -2532,25 +2616,53 @@ export const db = {
     status: 'pending' | 'completed' | 'cancelled' | 'rejected',
     adminNote?: string
   ): Promise<StoreOrder | null> {
-    const orders = await this.getStoreOrders();
+    const orders = getStored<StoreOrder[]>(STORAGE_KEYS.STORE_ORDERS, []);
     const idx = orders.findIndex((o) => o.id === orderId);
-    if (idx === -1) return null;
+    
+    let currentOrder: StoreOrder;
+    if (idx !== -1) {
+      currentOrder = orders[idx];
+      orders[idx] = {
+        ...currentOrder,
+        status,
+        admin_note: adminNote !== undefined ? adminNote : currentOrder.admin_note,
+        updated_at: new Date().toISOString(),
+      };
+      setStored(STORAGE_KEYS.STORE_ORDERS, orders);
+    } else {
+      currentOrder = {
+        id: orderId,
+        user_id: '',
+        username: 'Kullanıcı',
+        product_id: '',
+        product_name: 'Ürün',
+        coin_price: 0,
+        status,
+        admin_note: adminNote || '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
 
-    const currentOrder = orders[idx];
-    orders[idx] = {
-      ...currentOrder,
-      status,
-      admin_note: adminNote !== undefined ? adminNote : currentOrder.admin_note,
-      updated_at: new Date().toISOString(),
-    };
-
-    // If order was cancelled or rejected, optionally refund coins if requested
-    if ((status === 'cancelled' || status === 'rejected') && currentOrder.status === 'pending') {
-      // Refund coins
+    // If order was cancelled or rejected, refund coins immediately
+    if ((status === 'cancelled' || status === 'rejected') && currentOrder.status === 'pending' && currentOrder.user_id && currentOrder.coin_price > 0) {
       await this.addCoins(currentOrder.user_id, currentOrder.coin_price);
     }
 
-    setStored(STORAGE_KEYS.STORE_ORDERS, orders);
+    // Call server authoritative endpoint
+    try {
+      await fetch('/api/store/orders/update-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: orderId,
+          status,
+          admin_note: adminNote,
+        }),
+      });
+    } catch (apiErr) {
+      console.warn('API updateStoreOrderStatus error:', apiErr);
+    }
 
     if (isSupabaseReady()) {
       try {
@@ -2571,7 +2683,13 @@ export const db = {
       { status, admin_note: adminNote }
     );
 
-    return orders[idx];
+    window.dispatchEvent(
+      new CustomEvent('sponsorhub_db_change', {
+        detail: { key: STORAGE_KEYS.STORE_ORDERS },
+      })
+    );
+
+    return idx !== -1 ? orders[idx] : currentOrder;
   },
 
   // --- Profiles & Auth (Database Authoritative) ---

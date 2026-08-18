@@ -27,12 +27,6 @@ export const MainLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#070510] text-slate-100 flex flex-col selection:bg-violet-600 selection:text-white">
-      {/* Top Announcement Bar */}
-      <AnnouncementBanner />
-
-      {/* Top Full-width Sponsors Marquee Ticker */}
-      <TopSponsorsTicker />
-
       {/* Desktop Fixed Sidebar & Mobile Off-canvas Drawer */}
       <Sidebar
         isMobileOpen={isMobileMenuOpen}
@@ -47,6 +41,12 @@ export const MainLayout: React.FC = () => {
           isCollapsed ? 'lg:pl-20' : 'lg:pl-64'
         }`}
       >
+        {/* Top Announcement Bar */}
+        <AnnouncementBanner />
+
+        {/* Top Full-width Sponsors Marquee Ticker */}
+        <TopSponsorsTicker />
+
         {/* Sticky Header */}
         <Header onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
 

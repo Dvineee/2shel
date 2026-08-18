@@ -46,6 +46,11 @@ export interface SponsorFeature {
 
 export type SponsorCategory = 'main' | 'vip' | 'trusted';
 
+export interface SponsorFAQ {
+  question: string;
+  answer: string;
+}
+
 export interface Sponsor {
   id: string;
   name: string;
@@ -54,12 +59,14 @@ export interface Sponsor {
   banner_url?: string;
   description?: string;
   short_description?: string;
+  custom_review?: string;
   website_url: string;
   button_text: string;
   rating?: number;
   featured: boolean;
   verified: boolean;
   active: boolean;
+  has_detail_page?: boolean;
   sort_order: number;
   category?: SponsorCategory;
   bonus_text?: string;
@@ -78,6 +85,9 @@ export interface Sponsor {
   updated_at?: string;
   stats?: SponsorStat[];
   features?: SponsorFeature[];
+  pros?: string[];
+  cons?: string[];
+  faq?: SponsorFAQ[];
   clicks_count?: number;
 }
 

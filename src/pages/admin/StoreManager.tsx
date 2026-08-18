@@ -49,6 +49,7 @@ export const StoreManager: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<StoreOrder | null>(null);
   const [adminNoteInput, setAdminNoteInput] = useState('');
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
 
   // Products State
   const [editingProduct, setEditingProduct] = useState<Partial<StoreProduct> | null>(null);
@@ -92,25 +93,42 @@ export const StoreManager: React.FC = () => {
     note?: string
   ) => {
     soundEngine.playClick();
+    setUpdatingOrderId(orderId);
     setUpdatingStatus(true);
+
+    // Optimistic UI update so table and buttons update immediately on 1st click
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              status: newStatus,
+              admin_note: note !== undefined ? note : o.admin_note,
+              updated_at: new Date().toISOString(),
+            }
+          : o
+      )
+    );
+
     try {
       const updated = await db.updateStoreOrderStatus(orderId, newStatus, note);
       if (updated) {
         toast.success(
           newStatus === 'completed'
-            ? 'Sipariş tamamlandı ve teslim edildi olarak işaretlendi!'
+            ? 'Sipariş tamamlandı ve TESLİM EDİLDİ olarak kaydedildi!'
             : newStatus === 'cancelled' || newStatus === 'rejected'
             ? 'Sipariş iptal edildi ve coinler kullanıcıya iade edildi.'
             : 'Sipariş durumu güncellendi.'
         );
         setSelectedOrder(null);
-        await loadOrders();
-        await refreshAll();
       }
     } catch {
       toast.error('Sipariş durumu güncellenirken hata oluştu');
     } finally {
       setUpdatingStatus(false);
+      setUpdatingOrderId(null);
+      await loadOrders();
+      await refreshAll();
     }
   };
 
@@ -492,17 +510,19 @@ export const StoreManager: React.FC = () => {
                               {isPending && (
                                 <>
                                   <button
+                                    disabled={updatingOrderId === order.id}
                                     onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
-                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow flex items-center gap-1 transition-all cursor-pointer"
+                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
                                     title="Teslim Edildi Olarak Onayla"
                                   >
                                     <Check className="w-3.5 h-3.5" />
-                                    <span>Teslim Et</span>
+                                    <span>{updatingOrderId === order.id ? 'İşleniyor...' : 'Teslim Et'}</span>
                                   </button>
 
                                   <button
+                                    disabled={updatingOrderId === order.id}
                                     onClick={() => handleUpdateOrderStatus(order.id, 'cancelled')}
-                                    className="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-800 text-rose-300 hover:text-white border border-rose-800/40 font-bold text-[11px] transition-all cursor-pointer"
+                                    className="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-800 text-rose-300 hover:text-white border border-rose-800/40 font-bold text-[11px] transition-all cursor-pointer disabled:opacity-50"
                                     title="Siparişi İptal Et & Coini İade Et"
                                   >
                                     <X className="w-3.5 h-3.5" />

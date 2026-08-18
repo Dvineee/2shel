@@ -25,6 +25,10 @@ import {
   Wallet,
   Sparkles,
   Crown,
+  ThumbsUp,
+  ThumbsDown,
+  ChevronDown,
+  XCircle,
 } from 'lucide-react';
 import { getSponsorCategory } from '../lib/sponsorUtils';
 
@@ -37,6 +41,7 @@ export const SponsorDetailPage: React.FC = () => {
   });
   const [loading, setLoading] = useState(!sponsor);
   const [copied, setCopied] = useState(false);
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
   useEffect(() => {
     if (!slug) return;
@@ -99,7 +104,52 @@ export const SponsorDetailPage: React.FC = () => {
     );
   }
 
-  const otherSponsors = activeSponsors.filter((s) => s.id !== sponsor.id).slice(0, 4);
+  // If detail page is disabled for this sponsor
+  if (sponsor.has_detail_page === false) {
+    return (
+      <div className="py-12 sm:py-20 max-w-lg mx-auto text-center px-4">
+        <div className="p-6 sm:p-8 rounded-3xl bg-[#120b24] border border-violet-800/40 shadow-2xl space-y-5">
+          <div className="w-20 h-20 rounded-2xl bg-violet-950/80 p-3 mx-auto flex items-center justify-center border border-violet-700/40 shadow-inner">
+            <img
+              src={sponsor.logo_url}
+              alt={sponsor.name}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+
+          <div>
+            <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tight">
+              {sponsor.name}
+            </h2>
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+              Bu sponsor için özel inceleme sayfası devre dışı bırakılmıştır. Doğrudan resmi siteye erişebilirsiniz.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2.5 pt-2">
+            <button
+              onClick={handleJoinClick}
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-black text-xs sm:text-sm shadow-xl shadow-violet-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            >
+              <span>{(sponsor.button_text && sponsor.button_text !== 'DETAYLARI GÖR') ? sponsor.button_text : `${sponsor.name} Sitesine Git`}</span>
+              <ExternalLink className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => navigate('/sponsors')}
+              className="w-full py-2.5 rounded-xl border border-violet-800/60 hover:bg-violet-900/30 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+            >
+              Tüm Sponsorları Görüntüle
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const otherSponsors = activeSponsors
+    .filter((s) => s.id !== sponsor.id && s.has_detail_page !== false)
+    .slice(0, 4);
   const cat = getSponsorCategory(sponsor);
 
   const defaultPaymentMethods = [
@@ -293,7 +343,7 @@ export const SponsorDetailPage: React.FC = () => {
 
       {/* Main Review and Features Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 sm:gap-6">
-        {/* Left 2 Cols: Detailed Overview */}
+        {/* Left 2 Cols: Detailed Overview, Pros & Cons, FAQs */}
         <div className="lg:col-span-2 space-y-5 sm:space-y-6">
           {/* Detailed Platform Review */}
           <div className="p-5 sm:p-7 rounded-2xl sm:rounded-3xl bg-[#120b24] border border-violet-800/30 space-y-4">
@@ -326,6 +376,86 @@ export const SponsorDetailPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Pros & Cons Section (Artılar & Eksiler) */}
+          {((sponsor.pros && sponsor.pros.length > 0) || (sponsor.cons && sponsor.cons.length > 0)) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Pros */}
+              {sponsor.pros && sponsor.pros.length > 0 && (
+                <div className="p-5 sm:p-6 rounded-2xl sm:rounded-3xl bg-[#120b24] border border-emerald-800/30 space-y-3">
+                  <h3 className="text-xs sm:text-sm font-black text-emerald-300 uppercase tracking-wider flex items-center gap-2">
+                    <ThumbsUp className="w-4 h-4 text-emerald-400" />
+                    <span>Platform Artıları</span>
+                  </h3>
+                  <ul className="space-y-2">
+                    {sponsor.pros.map((pro, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-xs text-slate-200">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                        <span>{pro}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Cons */}
+              {sponsor.cons && sponsor.cons.length > 0 && (
+                <div className="p-5 sm:p-6 rounded-2xl sm:rounded-3xl bg-[#120b24] border border-rose-800/30 space-y-3">
+                  <h3 className="text-xs sm:text-sm font-black text-rose-300 uppercase tracking-wider flex items-center gap-2">
+                    <ThumbsDown className="w-4 h-4 text-rose-400" />
+                    <span>Platform Eksileri</span>
+                  </h3>
+                  <ul className="space-y-2">
+                    {sponsor.cons.map((con, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-xs text-slate-300">
+                        <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                        <span>{con}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sıkça Sorulan Sorular (FAQ) */}
+          {sponsor.faq && sponsor.faq.length > 0 && (
+            <div className="p-5 sm:p-7 rounded-2xl sm:rounded-3xl bg-[#120b24] border border-violet-800/30 space-y-4">
+              <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2 uppercase tracking-wide">
+                <HelpCircle className="w-5 h-5 text-violet-400 shrink-0" />
+                Sıkça Sorulan Sorular (SSS)
+              </h2>
+              <div className="space-y-2.5">
+                {sponsor.faq.map((item, idx) => {
+                  const isOpen = openFaqIndex === idx;
+                  return (
+                    <div
+                      key={idx}
+                      className="rounded-xl bg-violet-950/30 border border-violet-900/30 overflow-hidden transition-all"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
+                        className="w-full p-3.5 sm:p-4 text-left flex items-center justify-between gap-3 text-xs sm:text-sm font-bold text-white hover:text-violet-200 transition-colors cursor-pointer"
+                      >
+                        <span>{item.question}</span>
+                        <ChevronDown
+                          className={`w-4 h-4 text-violet-400 shrink-0 transition-transform duration-200 ${
+                            isOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+                      {isOpen && (
+                        <div className="px-3.5 sm:px-4 pb-3.5 sm:pb-4 text-xs text-slate-300 leading-relaxed border-t border-violet-900/20 pt-2.5">
+                          {item.answer}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Step-by-Step How to Register Guide */}
           <div className="p-5 sm:p-7 rounded-2xl sm:rounded-3xl bg-[#120b24] border border-violet-800/30 space-y-4">

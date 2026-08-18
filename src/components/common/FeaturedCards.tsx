@@ -15,11 +15,11 @@ export const FeaturedCards: React.FC = () => {
 
   return (
     <div className={`grid grid-cols-1 ${showSponsors && showWheel ? 'md:grid-cols-2' : ''} gap-4 my-5`}>
-      {/* 1. Güvenilir Siteler Card */}
+      {/* 1. Güvenilir Siteler Card (Hidden on mobile, visible on desktop) */}
       {showSponsors && (
         <NavLink
           to="/sponsors"
-          className="group relative overflow-hidden rounded-2xl md:rounded-3xl p-6 bg-gradient-to-br from-purple-950/60 via-[#120b24] to-[#0d0918] border border-violet-700/30 hover:border-violet-500/60 transition-all duration-300 shadow-xl hover:shadow-violet-900/30"
+          className="hidden md:block group relative overflow-hidden rounded-2xl md:rounded-3xl p-6 bg-gradient-to-br from-purple-950/60 via-[#120b24] to-[#0d0918] border border-violet-700/30 hover:border-violet-500/60 transition-all duration-300 shadow-xl hover:shadow-violet-900/30"
         >
           <div className="absolute top-0 right-0 -mr-10 -mt-10 w-40 h-40 bg-violet-600/15 rounded-full blur-3xl pointer-events-none group-hover:bg-violet-600/25 transition-all" />
 

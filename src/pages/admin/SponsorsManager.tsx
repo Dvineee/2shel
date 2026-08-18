@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
 import { db } from '../../lib/db';
-import { Sponsor, SponsorFeature, SponsorStat, SponsorCategory } from '../../types';
+import { Sponsor, SponsorFeature, SponsorStat, SponsorCategory, SponsorFAQ } from '../../types';
 import {
   SPONSOR_CATEGORIES,
   getSponsorCategory,
@@ -35,6 +35,12 @@ import {
   Database,
   Copy,
   CheckCheck,
+  ThumbsUp,
+  ThumbsDown,
+  HelpCircle,
+  ToggleLeft,
+  ToggleRight,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
@@ -66,6 +72,7 @@ export const SponsorsManager: React.FC = () => {
   const [featured, setFeatured] = useState(false);
   const [verified, setVerified] = useState(true);
   const [active, setActive] = useState(true);
+  const [hasDetailPage, setHasDetailPage] = useState(true);
   const [sortOrder, setSortOrder] = useState(1);
   const [bonusCode, setBonusCode] = useState('');
   const [bonusHeadline, setBonusHeadline] = useState('');
@@ -77,6 +84,9 @@ export const SponsorsManager: React.FC = () => {
   const [onlinePlayers, setOnlinePlayers] = useState('');
   const [liveSupport, setLiveSupport] = useState('7/24 Türkçe Canlı Destek');
   const [paymentMethodsText, setPaymentMethodsText] = useState('');
+  const [prosText, setProsText] = useState('');
+  const [consText, setConsText] = useState('');
+  const [faqList, setFaqList] = useState<SponsorFAQ[]>([]);
 
   // Dynamic stats
   const [stats, setStats] = useState<SponsorStat[]>([
@@ -109,6 +119,7 @@ export const SponsorsManager: React.FC = () => {
     setFeatured(defaultCategory === 'vip');
     setVerified(true);
     setActive(true);
+    setHasDetailPage(true);
     setSortOrder(sponsors.length + 1);
     setBonusCode('VIP100');
     setBonusHeadline('Kayıt Olurken (VIP100) Kodunu Kullan, Özel Fırsatları Yakala!');
@@ -120,6 +131,12 @@ export const SponsorsManager: React.FC = () => {
     setOnlinePlayers('1.420');
     setLiveSupport('7/24 Türkçe Canlı Destek');
     setPaymentMethodsText('Papara, Havale / EFT, Kripto (USDT), Payfix, Kredi Kartı, Mefete');
+    setProsText('Anında Para Çekme Garantisi\nYüksek Bahis Oranları & Zengin Slotlar\n7/24 Kesintisiz Türkçe Canlı Destek\nLisanslı & Güvenilir Altyapı');
+    setConsText('Hafta sonu yoğunluğunda canlı destek birkaç dakika gecikebilir');
+    setFaqList([
+      { question: 'Nasıl kayıt olabilirim ve bonus kazanabilirim?', answer: 'Yukarıdaki SİTEYE GİT butonuna tıklayarak resmi siteye ulaşabilir, kayıt formundaki promosyon kodu alanına ilgili kodu yazarak bonusunuzu alabilirsiniz.' },
+      { question: 'Para çekim süresi ne kadardır?', answer: 'Çekim talepleri ortalama 3 ile 15 dakika içerisinde otomatik onaylanarak hesabınıza aktarılır.' }
+    ]);
     setStats([
       { label: 'İlk Yatırım', value: '%100' },
       { label: 'Deneme Bonusu', value: '250 TL' },
@@ -151,6 +168,7 @@ export const SponsorsManager: React.FC = () => {
     setFeatured(sponsor.featured || cat === 'vip');
     setVerified(sponsor.verified !== false);
     setActive(sponsor.active !== false);
+    setHasDetailPage(sponsor.has_detail_page !== false);
     setSortOrder(sponsor.sort_order || 1);
     setBonusCode(sponsor.bonus_code || '');
     setBonusHeadline(sponsor.bonus_headline || '');
@@ -165,6 +183,24 @@ export const SponsorsManager: React.FC = () => {
       sponsor.payment_methods && sponsor.payment_methods.length > 0
         ? sponsor.payment_methods.join(', ')
         : 'Papara, Havale / EFT, Kripto (USDT), Payfix, Kredi Kartı, Mefete'
+    );
+    setProsText(
+      sponsor.pros && Array.isArray(sponsor.pros) && sponsor.pros.length > 0
+        ? sponsor.pros.join('\n')
+        : 'Anında Para Çekme Garantisi\nYüksek Bahis Oranları & Zengin Slotlar\n7/24 Kesintisiz Türkçe Canlı Destek\nLisanslı & Güvenilir Altyapı'
+    );
+    setConsText(
+      sponsor.cons && Array.isArray(sponsor.cons) && sponsor.cons.length > 0
+        ? sponsor.cons.join('\n')
+        : 'Hafta sonu yoğunluğunda canlı destek birkaç dakika gecikebilir'
+    );
+    setFaqList(
+      sponsor.faq && Array.isArray(sponsor.faq) && sponsor.faq.length > 0
+        ? sponsor.faq
+        : [
+            { question: 'Nasıl kayıt olabilirim ve bonus kazanabilirim?', answer: 'Yukarıdaki SİTEYE GİT butonuna tıklayarak resmi siteye ulaşabilir, kayıt formundaki promosyon kodu alanına ilgili kodu yazarak bonusunuzu alabilirsiniz.' },
+            { question: 'Para çekim süresi ne kadardır?', answer: 'Çekim talepleri ortalama 3 ile 15 dakika içerisinde otomatik onaylanarak hesabınıza aktarılır.' }
+          ]
     );
     setStats(
       sponsor.stats && sponsor.stats.length > 0
@@ -196,18 +232,45 @@ export const SponsorsManager: React.FC = () => {
       return;
     }
 
+    const sanitizeSlug = (text: string) => {
+      return text
+        .toLowerCase()
+        .replace(/ğ/g, 'g')
+        .replace(/ü/g, 'u')
+        .replace(/ş/g, 's')
+        .replace(/ı/g, 'i')
+        .replace(/ö/g, 'o')
+        .replace(/ç/g, 'c')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    };
+
     const finalLogoUrl =
       logoUrl.trim() ||
       'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80';
 
     const generatedSlug = slug.trim()
-      ? slug.trim().toLowerCase().replace(/\s+/g, '-')
-      : name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      ? sanitizeSlug(slug.trim())
+      : sanitizeSlug(name) || `sponsor-${Date.now()}`;
 
     const paymentMethodsParsed = paymentMethodsText
       .split(',')
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
+
+    const prosParsed = prosText
+      .split('\n')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+
+    const consParsed = consText
+      .split('\n')
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+
+    const faqParsed = faqList.filter(
+      (f) => f.question.trim().length > 0 && f.answer.trim().length > 0
+    );
 
     const sponsorData: Partial<Sponsor> = {
       name: name.trim(),
@@ -222,6 +285,7 @@ export const SponsorsManager: React.FC = () => {
       featured: category === 'vip' || featured,
       verified,
       active,
+      has_detail_page: hasDetailPage,
       sort_order: Number(sortOrder) || 1,
       bonus_code: bonusCode,
       bonus_headline: bonusHeadline,
@@ -233,6 +297,9 @@ export const SponsorsManager: React.FC = () => {
       online_players: onlinePlayers ? (parseInt(onlinePlayers.replace(/[^0-9]/g, '')) || 0) : undefined,
       live_support: liveSupport,
       payment_methods: paymentMethodsParsed,
+      pros: prosParsed,
+      cons: consParsed,
+      faq: faqParsed,
       stats,
       features,
     };
@@ -385,12 +452,34 @@ export const SponsorsManager: React.FC = () => {
     setFeatures(features.filter((_, i) => i !== index));
   };
 
+  const handleAddFaq = () => {
+    setFaqList([...faqList, { question: '', answer: '' }]);
+  };
+
+  const handleFaqChange = (index: number, field: 'question' | 'answer', value: string) => {
+    const updated = [...faqList];
+    updated[index] = { ...updated[index], [field]: value };
+    setFaqList(updated);
+  };
+
+  const handleRemoveFaq = (index: number) => {
+    setFaqList(faqList.filter((_, i) => i !== index));
+  };
+
   // Filter sponsors
-  const filteredSponsors = sortSponsors(sponsors).filter((s) => {
+  const safeSponsors = Array.isArray(sponsors) ? sponsors : [];
+  const filteredSponsors = sortSponsors(safeSponsors).filter((s) => {
+    if (!s) return false;
+    const nameStr = String(s.name || '').toLowerCase();
+    const slugStr = String(s.slug || '').toLowerCase();
+    const bonusStr = String(s.bonus_code || '').toLowerCase();
+    const query = searchTerm.toLowerCase().trim();
+
     const matchesSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.slug.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.bonus_code && s.bonus_code.toLowerCase().includes(searchTerm.toLowerCase()));
+      !query ||
+      nameStr.includes(query) ||
+      slugStr.includes(query) ||
+      bonusStr.includes(query);
 
     if (!matchesSearch) return false;
 
@@ -454,7 +543,7 @@ export const SponsorsManager: React.FC = () => {
                 : 'text-slate-300 hover:bg-violet-950/60'
             }`}
           >
-            Tümü ({sponsors.length})
+            Tümü ({safeSponsors.length})
           </button>
           <button
             onClick={() => setCategoryFilter('main')}
@@ -557,7 +646,7 @@ export const SponsorsManager: React.FC = () => {
                           <input
                             type="number"
                             min={1}
-                            max={sponsors.length + 10}
+                            max={(sponsors?.length || 0) + 10}
                             defaultValue={sponsor.sort_order}
                             key={`sort-${sponsor.id}-${sponsor.sort_order}`}
                             onBlur={(e) => {
@@ -604,9 +693,26 @@ export const SponsorsManager: React.FC = () => {
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               )}
                             </div>
-                            <span className="text-[11px] text-slate-400 font-mono">
-                              /site/{sponsor.slug}
-                            </span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {sponsor.has_detail_page !== false ? (
+                                <a
+                                  href={`/site/${sponsor.slug}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-violet-400 hover:text-violet-300 hover:underline font-mono bg-violet-950/60 px-1.5 py-0.5 rounded border border-violet-800/40"
+                                  title="Detay Sayfasını Yeni Sekmede Aç"
+                                >
+                                  <FileText className="w-3 h-3 text-violet-400" />
+                                  <span>/site/{sponsor.slug}</span>
+                                  <ExternalLink className="w-2.5 h-2.5 opacity-70" />
+                                </a>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400/90 bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-800/40">
+                                  <Zap className="w-2.5 h-2.5" />
+                                  <span>Doğrudan Link</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -921,6 +1027,44 @@ export const SponsorsManager: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Detail Page Optional Toggle in Tab 1 */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-violet-950/60 to-purple-950/40 border border-violet-700/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-violet-400" />
+                        <span className="text-xs font-black text-white">
+                          Özel Detay Sayfası Oluştur (/site/{slug || name.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'sponsor'})
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setHasDetailPage(!hasDetailPage)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          hasDetailPage
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-slate-800/60 text-slate-400 border border-slate-700/50 hover:bg-slate-800'
+                        }`}
+                      >
+                        {hasDetailPage ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Detay Sayfası Aktif</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Kapalı (Doğrudan Link)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      {hasDetailPage
+                        ? 'Bu sponsora özel detaylı inceleme sayfası (/site/:slug) oluşturulacaktır. 2. sekmeden banner, lisans, artılar/eksiler ve SSS verilerini girebilirsiniz.'
+                        : 'Detay sayfası kapalı. Ziyaretçiler kart üzerindeki "SİTEYE GİT" butonuna tıkladıklarında doğrudan belirlediğiniz hedef bağlantıya yönlendirilir.'}
+                    </p>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
                       Kısa Açıklama (Kart Üzerindeki Slogan)
@@ -939,6 +1083,60 @@ export const SponsorsManager: React.FC = () => {
               {/* TAB 2: DETAY SAYFASI VERİLERİ */}
               {modalTab === 'details' && (
                 <div className="space-y-4 animate-in fade-in duration-200">
+                  {/* Detail page enable / disable bar */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    hasDetailPage
+                      ? 'bg-violet-950/40 border-violet-700/50'
+                      : 'bg-amber-950/30 border-amber-800/40'
+                  }`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-white">
+                            Detay Sayfası Durumu:
+                          </span>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
+                            hasDetailPage
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          }`}>
+                            {hasDetailPage ? 'Aktif (Yayında)' : 'Devre Dışı (Sadece Doğrudan Link)'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          {hasDetailPage
+                            ? 'Ziyaretçiler detay butonuna basarak bu sponsorun özel inceleme sayfasını görüntüleyebilir.'
+                            : 'Detay sayfası kapalı olduğu için inceleme sayfası açılmaz, kullanıcılar doğrudan hedef web sitesine gider.'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {hasDetailPage && slug && (
+                          <a
+                            href={`/site/${slug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-xl bg-violet-900/60 hover:bg-violet-800 text-violet-200 text-xs font-bold flex items-center gap-1.5 border border-violet-700/50 transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Önizle</span>
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setHasDetailPage(!hasDetailPage)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            hasDetailPage
+                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'
+                              : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-md'
+                          }`}
+                        >
+                          {hasDetailPage ? 'Detay Sayfasını Kapat' : 'Detay Sayfasını Aktif Et'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Banner / Cover image for detail page */}
                   <div className="p-3.5 rounded-2xl bg-violet-950/30 border border-violet-800/30 space-y-3">
                     <ImageUploadField
@@ -979,15 +1177,6 @@ export const SponsorsManager: React.FC = () => {
                       />
                     </div>
                   </div>
-
-                  {/* Banner Image for Detail Page */}
-                  <ImageUploadField
-                    label="Detay Sayfası Üst Kapak Banner Görseli"
-                    value={bannerUrl}
-                    onChange={setBannerUrl}
-                    placeholder="https://... veya kapak görseli yükleyin"
-                    helperText="Detay sayfasının en üstünde arka plan kapak görseli olarak kullanılır (Önerilen: 1200x400)."
-                  />
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     <div>
@@ -1084,6 +1273,89 @@ export const SponsorsManager: React.FC = () => {
                     <span className="text-[10px] text-slate-500 mt-0.5 block">
                       Detay sayfasının sağ kenar çubuğunda rozetler halinde listelenir.
                     </span>
+                  </div>
+
+                  {/* Pros & Cons */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-800/30 space-y-1.5">
+                      <label className="block text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                        <ThumbsUp className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Platformun Artıları (Her satıra bir madde)</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={prosText}
+                        onChange={(e) => setProsText(e.target.value)}
+                        placeholder="Anında Para Çekme Garantisi&#10;Yüksek Bahis Oranları&#10;7/24 Canlı Destek"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-emerald-800/40 text-emerald-100 text-xs focus:outline-none focus:border-emerald-400 leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-rose-950/20 border border-rose-800/30 space-y-1.5">
+                      <label className="block text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                        <ThumbsDown className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Platformun Eksileri (Her satıra bir madde)</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={consText}
+                        onChange={(e) => setConsText(e.target.value)}
+                        placeholder="Hafta sonu yoğunluğunda canlı destek birkaç dakika gecikebilir"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-rose-800/40 text-rose-100 text-xs focus:outline-none focus:border-rose-400 leading-relaxed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* FAQ (Q&A) Manager */}
+                  <div className="p-4 rounded-2xl bg-violet-950/30 border border-violet-800/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-violet-200 flex items-center gap-1.5">
+                        <HelpCircle className="w-4 h-4 text-violet-400" />
+                        <span>Sıkça Sorulan Sorular (SSS)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAddFaq}
+                        className="text-[11px] text-violet-300 font-bold bg-violet-900/60 hover:bg-violet-800 px-2.5 py-1 rounded-lg border border-violet-700/50 cursor-pointer"
+                      >
+                        + Soru Ekle
+                      </button>
+                    </div>
+
+                    {faqList.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">
+                        Henüz soru eklenmedi. &quot;+ Soru Ekle&quot; butonuna basarak detay sayfasına özel SSS ekleyebilirsiniz.
+                      </p>
+                    ) : (
+                      faqList.map((faq, fIdx) => (
+                        <div key={fIdx} className="p-3 rounded-xl bg-[#0d0918] border border-violet-800/40 space-y-2 relative">
+                          <div className="flex items-center justify-between gap-2">
+                            <input
+                              type="text"
+                              placeholder="Soru (örn: Bonus nasıl alınır?)"
+                              value={faq.question}
+                              onChange={(e) => handleFaqChange(fIdx, 'question', e.target.value)}
+                              className="w-full p-2 text-xs font-bold rounded-lg bg-black/40 border border-violet-900/60 text-white focus:outline-none focus:border-violet-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFaq(fIdx)}
+                              className="p-2 text-rose-400 hover:text-rose-300 cursor-pointer"
+                              title="Soruyu Sil"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <textarea
+                            rows={2}
+                            placeholder="Cevap metni..."
+                            value={faq.answer}
+                            onChange={(e) => handleFaqChange(fIdx, 'answer', e.target.value)}
+                            className="w-full p-2 text-xs rounded-lg bg-black/30 border border-violet-900/40 text-slate-300 focus:outline-none focus:border-violet-500 leading-relaxed"
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
 
                   <div>
@@ -1279,6 +1551,7 @@ export const SponsorsManager: React.FC = () => {
               <div className="relative">
                 <pre className="p-4 rounded-xl bg-[#090514] border border-violet-900/60 text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto select-all">
 {`-- 1. Sponsors Tablosu Detay & İstatistik Kolonları
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS has_detail_page boolean DEFAULT true;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_code text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_headline text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS badge_text text;
@@ -1290,12 +1563,16 @@ ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;`}
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS pros jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS cons jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS faq jsonb;`}
                 </pre>
 
                 <button
                   onClick={() => {
                     const sqlText = `-- 1. Sponsors Tablosu Detay & İstatistik Kolonları
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS has_detail_page boolean DEFAULT true;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_code text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_headline text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS badge_text text;
@@ -1307,7 +1584,10 @@ ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;`;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS pros jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS cons jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS faq jsonb;`;
                     navigator.clipboard.writeText(sqlText);
                     setSqlCopied(true);
                     toast.success('SQL kodu panoya kopyalandı!');

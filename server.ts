@@ -521,6 +521,11 @@ const PORTAL_CACHE_TTL_MS = 2000; // 2 seconds cache for high responsiveness
 const serverCustomSponsors = new Map<string, any>();
 const serverDeletedSponsorIds = new Set<string>();
 
+const serverCustomGiveaways = new Map<string, any>();
+const serverDeletedGiveawayIds = new Set<string>();
+
+const serverCustomOrders = new Map<string, any>();
+
 // Portal Data Endpoint (Direct server-side Supabase query with caching & strict timeout)
 app.get('/api/portal/data', async (req, res) => {
   const now = Date.now();
@@ -612,15 +617,33 @@ app.get('/api/portal/data', async (req, res) => {
     }
 
     const entriesList = Array.isArray(giveaway_entries) ? giveaway_entries : [];
-    const formattedGiveaways = Array.isArray(giveaways)
-      ? giveaways.map((g: any) => {
-          const matchCount = entriesList.filter((e: any) => e.giveaway_id === g.id).length;
-          return {
-            ...g,
-            entries_count: Math.max(Number(g.entries_count) || 0, matchCount),
-          };
-        })
-      : [];
+    const remoteGiveaways = Array.isArray(giveaways) ? giveaways : [];
+    const finalGiveawaysMap = new Map<string, any>();
+
+    for (const g of remoteGiveaways) {
+      const gId = String(g.id);
+      if (serverDeletedGiveawayIds.has(gId)) continue;
+      if (serverCustomGiveaways.has(gId)) {
+        finalGiveawaysMap.set(gId, { ...g, ...serverCustomGiveaways.get(gId) });
+      } else {
+        finalGiveawaysMap.set(gId, g);
+      }
+    }
+
+    for (const [id, customG] of serverCustomGiveaways.entries()) {
+      if (serverDeletedGiveawayIds.has(id)) continue;
+      if (!finalGiveawaysMap.has(id)) {
+        finalGiveawaysMap.set(id, customG);
+      }
+    }
+
+    const formattedGiveaways = Array.from(finalGiveawaysMap.values()).map((g: any) => {
+      const matchCount = entriesList.filter((e: any) => e.giveaway_id === g.id).length;
+      return {
+        ...g,
+        entries_count: Math.max(Number(g.entries_count) || 0, matchCount),
+      };
+    });
 
     const resultData = {
       settings,
@@ -685,6 +708,7 @@ app.post('/api/sponsors/save', async (req, res) => {
     };
 
     let sponsorId = sponsor.id;
+    const isNew = Boolean(sponsor.isNew || !sponsorId || sponsorId.startsWith('sp-'));
     const isUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const hasValidUuid = Boolean(sponsorId && isUuidPattern.test(sponsorId));
 
@@ -722,64 +746,10 @@ app.post('/api/sponsors/save', async (req, res) => {
 
     let savedData: any = null;
 
-    // STEP 1: Find existing record in Supabase (by UUID, or by slug, or by name)
-    let existingRow: any = null;
-
-    if (hasValidUuid) {
-      try {
-        const checkRes = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(sponsorId)}&select=*`, {
-          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-          signal: AbortSignal.timeout(4000),
-        });
-        if (checkRes.ok) {
-          const rows = await checkRes.json();
-          if (Array.isArray(rows) && rows.length > 0) {
-            existingRow = rows[0];
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    if (!existingRow && payload.slug) {
-      try {
-        const checkSlug = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?slug=eq.${encodeURIComponent(payload.slug)}&select=*`, {
-          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-          signal: AbortSignal.timeout(4000),
-        });
-        if (checkSlug.ok) {
-          const rows = await checkSlug.json();
-          if (Array.isArray(rows) && rows.length > 0) {
-            existingRow = rows[0];
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    if (!existingRow && payload.name) {
-      try {
-        const checkName = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?name=eq.${encodeURIComponent(payload.name)}&select=*`, {
-          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-          signal: AbortSignal.timeout(4000),
-        });
-        if (checkName.ok) {
-          const rows = await checkName.json();
-          if (Array.isArray(rows) && rows.length > 0) {
-            existingRow = rows[0];
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // Dynamic helper to try request with column stripping on schema mismatch
+    // Helper to strip non-existent columns dynamically when Supabase schema differs
     const trySupabaseRequest = async (url: string, method: 'PATCH' | 'POST', basePayload: any) => {
       let currentPayload = { ...basePayload };
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 8; attempt++) {
         try {
           const resp = await fetch(url, {
             method,
@@ -793,12 +763,20 @@ app.post('/api/sponsors/save', async (req, res) => {
           }
           const errText = await resp.text();
           // Check if Supabase complained about a specific missing column
-          const colMatch = errText.match(/Could not find the column '([^']+)'/i) || errText.match(/column "([^"]+)" of relation "sponsors" does not exist/i);
+          const colMatch =
+            errText.match(/Could not find the column '([^']+)'/i) ||
+            errText.match(/column "([^"]+)" of relation "sponsors" does not exist/i) ||
+            errText.match(/column '([^']+)' of relation/i);
           if (colMatch && colMatch[1]) {
             delete currentPayload[colMatch[1]];
             continue;
           }
-          // If other failure, try stripped minimal standard payload on next attempt
+          // If ID type mismatch (e.g. invalid input syntax for type bigint), delete id and retry
+          if (errText.includes('invalid input syntax for type') || errText.includes('22P02')) {
+            delete currentPayload.id;
+            continue;
+          }
+          // Fallback stripped payloads
           if (attempt === 0) {
             currentPayload = {
               name: sponsor.name,
@@ -838,6 +816,44 @@ app.post('/api/sponsors/save', async (req, res) => {
       }
       return null;
     };
+
+    // STEP 1: If updating an existing sponsor, find existing row
+    let existingRow: any = null;
+    if (!isNew) {
+      if (hasValidUuid || (sponsorId && !sponsorId.startsWith('sp-'))) {
+        try {
+          const checkRes = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(sponsorId)}&select=*`, {
+            headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+            signal: AbortSignal.timeout(4000),
+          });
+          if (checkRes.ok) {
+            const rows = await checkRes.json();
+            if (Array.isArray(rows) && rows.length > 0) {
+              existingRow = rows[0];
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!existingRow && payload.slug) {
+        try {
+          const checkSlug = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?slug=eq.${encodeURIComponent(payload.slug)}&select=*`, {
+            headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+            signal: AbortSignal.timeout(4000),
+          });
+          if (checkSlug.ok) {
+            const rows = await checkSlug.json();
+            if (Array.isArray(rows) && rows.length > 0) {
+              existingRow = rows[0];
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
 
     // STEP 2: If existing row found, PATCH update it
     if (existingRow && existingRow.id) {
@@ -933,6 +949,158 @@ app.post('/api/sponsors/delete', async (req, res) => {
   }
 });
 
+// Admin Giveaway Save / Upsert Endpoint
+app.post('/api/giveaways/save', async (req, res) => {
+  try {
+    const giveaway = req.body;
+    if (!giveaway || !giveaway.title) {
+      return res.status(400).json({ success: false, message: 'Çekiliş başlığı gereklidir.' });
+    }
+
+    const headers: Record<string, string> = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
+
+    const targetId = giveaway.id || `giv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const isCompleted = Boolean(giveaway.is_completed || giveaway.winner_username);
+
+    const basePayload: any = {
+      id: targetId,
+      title: giveaway.title,
+      description: giveaway.description || '',
+      image_url: giveaway.image_url || 'https://images.unsplash.com/photo-1606813907291-d86efa9b94db?auto=format&fit=crop&w=800&h=450&q=80',
+      prize: giveaway.prize_details || giveaway.prize || 'Ödül',
+      total_winners: Number(giveaway.winner_count || giveaway.total_winners || 1),
+      end_date: giveaway.end_at || giveaway.end_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      is_active: giveaway.active !== false && giveaway.is_active !== false,
+      created_at: giveaway.start_at || giveaway.created_at || new Date().toISOString(),
+      winners: giveaway.winner_username
+        ? [{ username: giveaway.winner_username, id: giveaway.winner_id, note: giveaway.winner_note, date: giveaway.winner_announced_at }]
+        : [],
+    };
+
+    const extendedPayload: any = {
+      ...basePayload,
+      prize_details: giveaway.prize_details || basePayload.prize,
+      winner_count: basePayload.total_winners,
+      end_at: basePayload.end_date,
+      start_at: basePayload.created_at,
+      is_completed: isCompleted,
+      winner_username: giveaway.winner_username || null,
+      winner_id: giveaway.winner_id || null,
+      winner_announced_at: giveaway.winner_announced_at || null,
+      winner_note: giveaway.winner_note || null,
+    };
+
+    // Attempt upsert to Supabase
+    try {
+      const { error: upsertErr } = await fetch(`${SUPABASE_URL}/rest/v1/giveaways`, {
+        method: 'POST',
+        headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(extendedPayload),
+        signal: AbortSignal.timeout(4000),
+      }).then((r) => r.json().then((d) => ({ error: !r.ok ? d : null })));
+
+      if (upsertErr) {
+        // Fallback to base payload
+        await fetch(`${SUPABASE_URL}/rest/v1/giveaways`, {
+          method: 'POST',
+          headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify(basePayload),
+          signal: AbortSignal.timeout(4000),
+        });
+      }
+    } catch (dbErr) {
+      console.warn('Supabase giveaway upsert warning:', dbErr);
+    }
+
+    const finalGiveaway = {
+      id: targetId,
+      title: giveaway.title,
+      description: giveaway.description || '',
+      image_url: basePayload.image_url,
+      prize_details: giveaway.prize_details || basePayload.prize,
+      start_at: basePayload.created_at,
+      end_at: basePayload.end_date,
+      active: basePayload.is_active,
+      winner_count: basePayload.total_winners,
+      entries_count: Number(giveaway.entries_count || 0),
+      is_completed: isCompleted,
+      winner_username: giveaway.winner_username || undefined,
+      winner_id: giveaway.winner_id || undefined,
+      winner_announced_at: giveaway.winner_announced_at || undefined,
+      winner_note: giveaway.winner_note || undefined,
+    };
+
+    serverCustomGiveaways.set(targetId, finalGiveaway);
+    serverDeletedGiveawayIds.delete(targetId);
+
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({
+      success: true,
+      message: 'Çekiliş başarıyla kaydedildi.',
+      giveaway: finalGiveaway,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/giveaways/save:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Sunucu hatası' });
+  }
+});
+
+// Admin Giveaway Delete Endpoint
+app.post('/api/giveaways/delete', async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Çekiliş ID gereklidir.' });
+    }
+
+    const strId = String(id);
+    serverCustomGiveaways.delete(strId);
+    serverDeletedGiveawayIds.add(strId);
+
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    };
+
+    // 1. Delete all child entries first so foreign key constraints won't reject deletion
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/giveaway_entries?giveaway_id=eq.${encodeURIComponent(strId)}`, {
+        method: 'DELETE',
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+    } catch (err) {
+      console.warn('Entries delete error on giveaway delete:', err);
+    }
+
+    // 2. Delete giveaway row
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/giveaways?id=eq.${encodeURIComponent(strId)}`, {
+        method: 'DELETE',
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+    } catch (err) {
+      console.warn('Giveaway delete error:', err);
+    }
+
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({ success: true, message: 'Çekiliş ve tüm katılımcı kayıtları başarıyla silindi.' });
+  } catch (err: any) {
+    console.error('Error in /api/giveaways/delete:', err);
+    return res.status(500).json({ success: false, message: 'Silme hatası' });
+  }
+});
+
 // Dedicated Giveaway Join endpoint with server-side duplicate check & Supabase sync
 app.post('/api/giveaways/join', async (req, res) => {
   try {
@@ -1022,6 +1190,250 @@ app.post('/api/giveaways/join', async (req, res) => {
   } catch (err: any) {
     console.error('Error joining giveaway:', err);
     return res.status(500).json({ success: false, message: 'Çekilişe katılırken sunucu hatası oluştu.' });
+  }
+});
+
+// ======================== STORE & ORDERS ENDPOINTS ========================
+
+// 1. Get All Store Orders (Authoritative server merge)
+app.get('/api/store/orders', async (req, res) => {
+  try {
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    };
+
+    let remoteOrders: any[] = [];
+    try {
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/store_orders?select=*&order=created_at.desc`, {
+        headers,
+        signal: AbortSignal.timeout(6000),
+      });
+      if (resp.ok) {
+        remoteOrders = await resp.json();
+      }
+    } catch (e) {
+      console.warn('Supabase fetch store_orders warning:', e);
+    }
+
+    const mappedRemote: any[] = Array.isArray(remoteOrders)
+      ? remoteOrders.map((d: any) => {
+          let parsedInfo: any = {};
+          if (typeof d.delivery_info === 'object' && d.delivery_info !== null) {
+            parsedInfo = d.delivery_info;
+          } else if (typeof d.delivery_info === 'string') {
+            try {
+              parsedInfo = JSON.parse(d.delivery_info);
+            } catch {
+              parsedInfo = { note: d.delivery_info };
+            }
+          }
+
+          return {
+            id: String(d.id),
+            user_id: String(d.user_id),
+            username: parsedInfo.username || d.username || 'Kullanıcı',
+            product_id: String(d.product_id || ''),
+            product_name: d.product_title || d.product_name || parsedInfo.product_name || 'Ürün',
+            coin_price: Number(d.price_coins || d.coin_price || parsedInfo.coin_price || 0),
+            payout_type: d.payout_type || parsedInfo.payout_type || (parsedInfo.iban ? 'iban' : parsedInfo.trx_address ? 'trx' : 'trx'),
+            payout_address: d.payout_address || parsedInfo.payout_address || parsedInfo.iban || parsedInfo.trx_address || '',
+            payout_holder_name: d.payout_holder_name || parsedInfo.payout_holder_name || parsedInfo.holder_name || '',
+            payout_bank_name: d.payout_bank_name || parsedInfo.payout_bank_name || '',
+            status: d.status || 'pending',
+            delivery_note: parsedInfo.note || parsedInfo.delivery_note || d.delivery_note || '',
+            admin_note: d.admin_note || parsedInfo.admin_note || '',
+            created_at: d.created_at || new Date().toISOString(),
+            updated_at: d.updated_at,
+          };
+        })
+      : [];
+
+    // Merge with serverCustomOrders (serverCustomOrders has highest priority for status updates)
+    const ordersMap = new Map<string, any>();
+    for (const ord of mappedRemote) {
+      ordersMap.set(ord.id, ord);
+    }
+    for (const [id, customOrd] of serverCustomOrders.entries()) {
+      if (ordersMap.has(id)) {
+        ordersMap.set(id, { ...ordersMap.get(id), ...customOrd });
+      } else {
+        ordersMap.set(id, customOrd);
+      }
+    }
+
+    const finalOrders = Array.from(ordersMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    return res.json({ success: true, orders: finalOrders });
+  } catch (err: any) {
+    console.error('Error in /api/store/orders:', err);
+    return res.status(500).json({ success: false, message: 'Siparişler yüklenemedi' });
+  }
+});
+
+// 2. Update Store Order Status (Authoritative, handles refund and Supabase sync)
+app.post('/api/store/orders/update-status', async (req, res) => {
+  try {
+    const { order_id, status, admin_note } = req.body;
+    if (!order_id || !status) {
+      return res.status(400).json({ success: false, message: 'order_id ve status gereklidir.' });
+    }
+
+    const strOrderId = String(order_id);
+    const nowIso = new Date().toISOString();
+
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
+
+    // Find existing order
+    let existingOrder = serverCustomOrders.get(strOrderId);
+    if (!existingOrder) {
+      try {
+        const resp = await fetch(`${SUPABASE_URL}/rest/v1/store_orders?id=eq.${encodeURIComponent(strOrderId)}`, {
+          headers,
+          signal: AbortSignal.timeout(4000),
+        });
+        if (resp.ok) {
+          const list = await resp.json();
+          if (Array.isArray(list) && list.length > 0) {
+            existingOrder = list[0];
+          }
+        }
+      } catch (e) {
+        console.warn('Fetch single order warning:', e);
+      }
+    }
+
+    const previousStatus = existingOrder?.status || 'pending';
+    const coinPrice = Number(existingOrder?.price_coins || existingOrder?.coin_price || 0);
+    const userId = String(existingOrder?.user_id || '');
+
+    // If changing from pending to cancelled / rejected, refund user coins in Supabase
+    if ((status === 'cancelled' || status === 'rejected') && previousStatus === 'pending' && userId && coinPrice > 0) {
+      try {
+        // Fetch current user coins
+        const pResp = await fetch(
+          `${SUPABASE_URL}/rest/v1/profiles?or=(id.eq.${encodeURIComponent(userId)},id.eq.tg-${encodeURIComponent(userId)})&select=*`,
+          { headers, signal: AbortSignal.timeout(4000) }
+        );
+        if (pResp.ok) {
+          const pList = await pResp.json();
+          if (Array.isArray(pList) && pList.length > 0) {
+            const currentCoins = Number(pList[0].coins ?? pList[0].coin_balance ?? 0);
+            const newCoins = currentCoins + coinPrice;
+            await fetch(
+              `${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(pList[0].id)}`,
+              {
+                method: 'PATCH',
+                headers,
+                body: JSON.stringify({ coins: newCoins, updated_at: nowIso }),
+                signal: AbortSignal.timeout(4000),
+              }
+            );
+          }
+        }
+      } catch (coinErr) {
+        console.warn('Coin refund in Supabase error:', coinErr);
+      }
+    }
+
+    // Update Supabase store_orders
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/store_orders?id=eq.${encodeURIComponent(strOrderId)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          status,
+          updated_at: nowIso,
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+    } catch (dbErr) {
+      console.warn('Supabase store_orders PATCH error:', dbErr);
+    }
+
+    const updatedOrder = {
+      ...(existingOrder || {}),
+      id: strOrderId,
+      status,
+      admin_note: admin_note !== undefined ? admin_note : existingOrder?.admin_note,
+      updated_at: nowIso,
+    };
+
+    serverCustomOrders.set(strOrderId, updatedOrder);
+
+    // Invalidate portal cache
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({
+      success: true,
+      message: status === 'completed' ? 'Sipariş teslim edildi olarak işaretlendi' : 'Sipariş güncellendi',
+      order: updatedOrder,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/store/orders/update-status:', err);
+    return res.status(500).json({ success: false, message: 'Sipariş durumu güncellenirken hata oluştu' });
+  }
+});
+
+// 3. Create Store Order
+app.post('/api/store/orders/create', async (req, res) => {
+  try {
+    const { order } = req.body;
+    if (!order || !order.id || !order.user_id) {
+      return res.status(400).json({ success: false, message: 'Geçersiz sipariş verisi' });
+    }
+
+    serverCustomOrders.set(String(order.id), order);
+
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=representation',
+    };
+
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/store_orders`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          id: order.id,
+          user_id: order.user_id,
+          product_id: order.product_id,
+          product_title: order.product_name,
+          price_coins: order.coin_price,
+          status: order.status || 'pending',
+          delivery_info: {
+            username: order.username,
+            payout_type: order.payout_type,
+            payout_address: order.payout_address,
+            payout_holder_name: order.payout_holder_name,
+            payout_bank_name: order.payout_bank_name,
+            note: order.delivery_note,
+          },
+          created_at: order.created_at || new Date().toISOString(),
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+    } catch (e) {
+      console.warn('Supabase store_orders create error:', e);
+    }
+
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({ success: true, order });
+  } catch (err: any) {
+    console.error('Error in /api/store/orders/create:', err);
+    return res.status(500).json({ success: false, message: 'Sipariş oluşturulamadı' });
   }
 });
 

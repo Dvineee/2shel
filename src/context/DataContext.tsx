@@ -31,6 +31,7 @@ interface DataContextType {
   socialLinks: SocialLink[];
   wheelRewards: WheelReward[];
   giveaways: Giveaway[];
+  activeGiveaways: Giveaway[];
   storeProducts: StoreProduct[];
   settings: SiteSettings;
   loading: boolean;
@@ -109,14 +110,29 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handler = () => {
       // Immediate local state synchronization from storage
       const currentCache = db.getCachedData();
-      if (currentCache.sponsors && currentCache.sponsors.length > 0) {
+      if (currentCache.sponsors) {
         setSponsors(sortSponsors(currentCache.sponsors));
       }
       if (currentCache.settings) {
         setSettings(currentCache.settings);
       }
-      if (currentCache.banners && currentCache.banners.length > 0) {
+      if (currentCache.banners) {
         setBanners(currentCache.banners);
+      }
+      if (currentCache.giveaways !== undefined) {
+        setGiveaways(currentCache.giveaways);
+      }
+      if (currentCache.storeProducts !== undefined) {
+        setStoreProducts(currentCache.storeProducts);
+      }
+      if (currentCache.socialLinks !== undefined) {
+        setSocialLinks(currentCache.socialLinks);
+      }
+      if (currentCache.wheelRewards !== undefined) {
+        setWheelRewards(currentCache.wheelRewards);
+      }
+      if (currentCache.heroSlides !== undefined) {
+        setHeroSlides(currentCache.heroSlides);
       }
 
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -212,7 +228,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         rightBanners,
         socialLinks: socialLinks.filter((s) => s.active !== false),
         wheelRewards,
-        giveaways: giveaways.filter((g) => g.active !== false || g.is_completed),
+        giveaways,
+        activeGiveaways: giveaways.filter((g) => g.active !== false || g.is_completed),
         storeProducts: storeProducts.filter((p) => p.active !== false),
         settings,
         loading,

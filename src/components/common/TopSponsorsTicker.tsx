@@ -29,13 +29,13 @@ export const TopSponsorsTicker: React.FC = () => {
       onMouseLeave={() => setIsPaused(false)}
     >
       {/* Sleek Static Prefix Badge */}
-      <div className="hidden sm:flex items-center gap-1.5 px-3 h-full bg-[#0e081f] border-r border-violet-900/40 text-[11px] font-black tracking-wider uppercase text-violet-300 shrink-0 z-20 shadow-md">
-        <Flame className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+      <div className="flex items-center gap-1.5 px-2.5 sm:px-3 h-full bg-[#0e081f] border-r border-violet-900/40 text-[10px] sm:text-[11px] font-black tracking-wider uppercase text-violet-300 shrink-0 z-20 shadow-md">
+        <Flame className="w-3.5 h-3.5 text-amber-400 animate-pulse shrink-0" />
         <span>Sponsorlar</span>
       </div>
 
       {/* Edge Gradient Mask for Clean Reading Fade */}
-      <div className="pointer-events-none absolute left-0 sm:left-[105px] inset-y-0 w-8 bg-gradient-to-r from-[#080512] to-transparent z-10" />
+      <div className="pointer-events-none absolute left-[85px] sm:left-[105px] inset-y-0 w-6 sm:w-8 bg-gradient-to-r from-[#080512] to-transparent z-10" />
       <div className="pointer-events-none absolute right-0 inset-y-0 w-8 bg-gradient-to-l from-[#080512] to-transparent z-10" />
 
       {/* Infinite Scrolling Ticker Track */}
