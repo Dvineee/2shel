@@ -169,66 +169,84 @@ export const db = {
       giveaway_entries,
     } = rawData;
 
+    // Helper for safe boolean active check: only explicit false or inactive status disables a record
+    const isRowActive = (d: any): boolean => {
+      if (!d) return true;
+      if (d.is_active === false || d.active === false || d.status === 'inactive' || d.status === false) {
+        return false;
+      }
+      return true;
+    };
+
     let mappedSettings = initialSiteSettings;
     if (settings && Array.isArray(settings) && settings.length > 0) {
       const gen = settings.find((s: any) => s.setting_key === 'general');
-      if (gen?.setting_value) {
+      if (gen?.setting_value && typeof gen.setting_value === 'object') {
         mappedSettings = { ...initialSiteSettings, ...gen.setting_value };
         setStored(STORAGE_KEYS.SITE_SETTINGS, mappedSettings, true);
       }
+    } else {
+      const cached = getStored<SiteSettings>(STORAGE_KEYS.SITE_SETTINGS, initialSiteSettings);
+      mappedSettings = cached || initialSiteSettings;
     }
 
     let mappedSponsors: Sponsor[] = [];
-    if (Array.isArray(sponsors)) {
+    if (Array.isArray(sponsors) && sponsors.length > 0) {
       mappedSponsors = sponsors.map((d: any) => {
         const cat = getSponsorCategory(d);
         return {
           ...d,
-          id: d.id,
-          name: d.name,
-          slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : d.id),
-          logo_url: d.logo_url,
-          banner_url: d.banner_url || '',
-          bonus_text: d.bonus_text || '',
-          description: d.full_review || d.description || '',
+          id: String(d.id),
+          name: d.name || d.title || 'Sponsor',
+          slug: d.slug || (d.name ? d.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') : String(d.id)),
+          logo_url: d.logo_url || d.logo || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80',
+          banner_url: d.banner_url || d.banner || '',
+          bonus_text: d.bonus_text || d.bonus || d.bonus_code || '',
+          description: d.full_review || d.description || d.desc || '',
           short_description: d.short_desc || d.short_description || '',
-          website_url: d.direct_url || d.website_url || 'https://example.com',
-          button_text: d.button_text || 'DETAYLARI GÖR',
-          rating: Number(d.rating || 4.8),
+          website_url: d.direct_url || d.website_url || d.link || d.url || 'https://example.com',
+          button_text: d.button_text || d.btn_text || 'DETAYLARI GÖR',
+          rating: Number(d.rating || d.score || 4.8),
           category: cat,
-          featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured)),
-          verified: d.is_active !== false,
-          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+          featured: cat === 'vip' || (d.is_vip !== undefined && d.is_vip !== null ? Boolean(d.is_vip) : Boolean(d.featured)),
+          verified: isRowActive(d) && d.verified !== false,
+          active: isRowActive(d),
           sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (parseInt(d.sort_order) || 0),
           stats: d.stats && Array.isArray(d.stats) && d.stats.length > 0 ? d.stats : [
             { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-            { id: `stat-2`, label: 'Deneme', value: '250 TL', sort_order: 2 },
-            { id: `stat-3`, label: 'Kayıp', value: '%20', sort_order: 3 },
+            { id: `stat-2`, label: 'Deneme Bonusu', value: '250 TL', sort_order: 2 },
+            { id: `stat-3`, label: 'Kayıp Bonusu', value: '%20', sort_order: 3 },
           ],
           features: d.features && Array.isArray(d.features) && d.features.length > 0 ? d.features : [
             { id: `feat-1`, text: 'Hızlı Çekim', sort_order: 1 },
-            { id: `feat-2`, text: '7/24 Destek', sort_order: 2 },
+            { id: `feat-2`, text: '7/24 Canlı Destek', sort_order: 2 },
           ],
         };
       });
       mappedSponsors = sortSponsors(mappedSponsors);
       setStored(STORAGE_KEYS.SPONSORS, mappedSponsors, true);
+    } else {
+      const cached = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+      mappedSponsors = (cached && cached.length > 0) ? cached : initialSponsors;
     }
 
     let mappedHeroSlides: HeroSlide[] = [];
-    if (Array.isArray(hero_slides)) {
+    if (Array.isArray(hero_slides) && hero_slides.length > 0) {
       mappedHeroSlides = hero_slides.map((d: any) => ({
-        id: d.id,
-        title: d.title,
+        id: String(d.id),
+        title: d.title || '',
         subtitle: d.subtitle || '',
-        desktop_image: d.background_image || d.desktop_image || '',
-        mobile_image: d.mobile_image || '',
-        button_text: d.button_text || 'HEMEN KATIL',
-        target_url: d.button_url || d.target_url || '/giveaways',
-        sort_order: d.sort_order || 0,
-        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
+        desktop_image: d.desktop_image || d.background_image || d.image_url || d.image || '',
+        mobile_image: d.mobile_image || d.mobile_image_url || '',
+        button_text: d.button_text || d.btn_text || 'HEMEN KATIL',
+        target_url: d.button_url || d.target_url || d.link || '/giveaways',
+        sort_order: typeof d.sort_order === 'number' ? d.sort_order : (parseInt(d.sort_order) || 0),
+        active: isRowActive(d),
       }));
       setStored(STORAGE_KEYS.HERO_SLIDES, mappedHeroSlides, true);
+    } else {
+      const cached = getStored<HeroSlide[]>(STORAGE_KEYS.HERO_SLIDES, initialHeroSlides);
+      mappedHeroSlides = (cached && cached.length > 0) ? cached : initialHeroSlides;
     }
 
     let mappedBanners: Banner[] = [];
@@ -245,18 +263,17 @@ export const db = {
         } else if (rawPos.includes('left') || rawPos.includes('sol')) {
           pos = 'left';
         } else {
-          // If ambiguous, alternate between left and right for side banners
           pos = idx % 2 === 0 ? 'left' : 'right';
         }
 
         return {
-          id: d.id,
+          id: String(d.id),
           name: d.title || d.name || 'Banner',
-          image_url: d.image_url,
-          target_url: d.target_url || '/',
+          image_url: d.image_url || d.image || d.banner_url || '',
+          target_url: d.target_url || d.link || d.url || '/',
           position: pos,
-          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-          sort_order: d.sort_order || 0,
+          active: isRowActive(d),
+          sort_order: typeof d.sort_order === 'number' ? d.sort_order : (parseInt(d.sort_order) || 0),
           clicks_count: d.clicks || d.clicks_count || 0,
         };
       });
@@ -270,33 +287,39 @@ export const db = {
     }
 
     let mappedSocials: SocialLink[] = [];
-    if (Array.isArray(social_links)) {
+    if (Array.isArray(social_links) && social_links.length > 0) {
       mappedSocials = social_links.map((d: any) => ({
-        id: d.id,
-        platform: d.platform,
-        title: d.title,
+        id: String(d.id),
+        platform: d.platform || 'telegram',
+        title: d.title || d.name || 'Telegram',
         subtitle: d.subtitle || 'Katıl',
-        url: d.url,
+        url: d.url || d.link || 'https://t.me',
         icon: d.icon || 'Send',
-        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-        sort_order: d.sort_order || 0,
+        active: isRowActive(d),
+        sort_order: typeof d.sort_order === 'number' ? d.sort_order : (parseInt(d.sort_order) || 0),
       }));
       setStored(STORAGE_KEYS.SOCIAL_LINKS, mappedSocials, true);
+    } else {
+      const cached = getStored<SocialLink[]>(STORAGE_KEYS.SOCIAL_LINKS, initialSocialLinks);
+      mappedSocials = (cached && cached.length > 0) ? cached : initialSocialLinks;
     }
 
     let mappedRewards: WheelReward[] = [];
-    if (Array.isArray(wheel_rewards)) {
+    if (Array.isArray(wheel_rewards) && wheel_rewards.length > 0) {
       mappedRewards = wheel_rewards.map((d: any) => ({
-        id: d.id,
-        title: d.name || d.title,
+        id: String(d.id),
+        title: d.name || d.title || 'Ödül',
         reward_type: d.reward_type || 'coin',
-        reward_value: Number(d.coin_reward || d.reward_value || 100),
+        reward_value: Number(d.coin_reward ?? d.reward_value ?? 100),
         color: d.color || '#7C3AED',
         probability: Number(d.probability || 10),
-        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-        sort_order: d.sort_order || 0,
+        active: isRowActive(d),
+        sort_order: typeof d.sort_order === 'number' ? d.sort_order : (parseInt(d.sort_order) || 0),
       }));
       setStored(STORAGE_KEYS.WHEEL_REWARDS, mappedRewards, true);
+    } else {
+      const cached = getStored<WheelReward[]>(STORAGE_KEYS.WHEEL_REWARDS, initialWheelRewards);
+      mappedRewards = (cached && cached.length > 0) ? cached : initialWheelRewards;
     }
 
     const remoteEntries = Array.isArray(giveaway_entries)
@@ -308,21 +331,21 @@ export const db = {
     const allStoredEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
 
     let mappedGiveaways: Giveaway[] = [];
-    if (Array.isArray(giveaways)) {
+    if (Array.isArray(giveaways) && giveaways.length > 0) {
       mappedGiveaways = giveaways.map((d: any) => {
         const winnerObj = Array.isArray(d.winners) && d.winners.length > 0 ? d.winners[0] : null;
         const winnerName = d.winner_username || (winnerObj ? (winnerObj.username || winnerObj.name) : undefined);
         const matchingEntriesCount = allStoredEntries.filter((e) => e.giveaway_id === d.id).length;
         return {
-          id: d.id,
-          title: d.title || 'Çekiliş',
-          description: d.description || '',
-          image_url: d.image_url || '',
+          id: String(d.id),
+          title: d.title || d.name || 'Çekiliş',
+          description: d.description || d.desc || '',
+          image_url: d.image_url || d.image || '',
           prize_details: d.prize || d.prize_details || 'Ödül',
-          start_at: d.created_at || new Date().toISOString(),
+          start_at: d.created_at || d.start_at || new Date().toISOString(),
           end_at: d.end_date || d.end_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-          winner_count: d.total_winners || d.winner_count || 1,
+          active: isRowActive(d),
+          winner_count: Number(d.total_winners || d.winner_count || 1),
           entries_count: Math.max(Number(d.entries_count) || 0, matchingEntriesCount),
           is_completed: Boolean(d.is_completed || winnerName),
           winner_username: winnerName,
@@ -332,22 +355,28 @@ export const db = {
         };
       });
       setStored(STORAGE_KEYS.GIVEAWAYS, mappedGiveaways, true);
+    } else {
+      const cached = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, initialGiveaways);
+      mappedGiveaways = (cached && cached.length > 0) ? cached : initialGiveaways;
     }
 
     let mappedProducts: StoreProduct[] = [];
-    if (Array.isArray(store_products)) {
+    if (Array.isArray(store_products) && store_products.length > 0) {
       mappedProducts = store_products.map((d: any) => ({
-        id: d.id,
-        name: d.title || d.name,
-        description: d.description || '',
-        image_url: d.image_url || '',
-        coin_price: d.price_coins || d.coin_price || 100,
-        stock: d.stock || 50,
+        id: String(d.id),
+        name: d.title || d.name || 'Ürün',
+        description: d.description || d.desc || '',
+        image_url: d.image_url || d.image || '',
+        coin_price: Number(d.price_coins ?? d.coin_price ?? 100),
+        stock: Number(d.stock ?? d.quantity ?? 50),
         category: d.category || 'digital',
-        active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== false),
-        sort_order: d.sort_order || 0,
+        active: isRowActive(d),
+        sort_order: typeof d.sort_order === 'number' ? d.sort_order : (parseInt(d.sort_order) || 0),
       }));
       setStored(STORAGE_KEYS.STORE_PRODUCTS, mappedProducts, true);
+    } else {
+      const cached = getStored<StoreProduct[]>(STORAGE_KEYS.STORE_PRODUCTS, initialStoreProducts);
+      mappedProducts = (cached && cached.length > 0) ? cached : initialStoreProducts;
     }
 
     return {

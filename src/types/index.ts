@@ -70,6 +70,8 @@ export interface Sponsor {
   rtp_rate?: string;
   online_players?: number;
   payment_methods?: string[];
+  live_support?: string;
+  bonus_headline?: string;
   badge_text?: string;
   accent_color?: string;
   created_at?: string;

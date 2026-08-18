@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { db } from '../../lib/db';
 import { soundEngine } from '../../lib/sound';
-import { Star, ShieldCheck, ChevronRight, Copy, CheckCheck, Sparkles } from 'lucide-react';
+import { ShieldCheck, ChevronRight, Copy, CheckCheck, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const TopSponsorsTicker: React.FC = () => {
@@ -88,14 +88,6 @@ export const TopSponsorsTicker: React.FC = () => {
                     <Sparkles className="w-2.5 h-2.5 text-amber-400" />
                     {bonusHighlight}
                   </span>
-
-                  {/* Rating */}
-                  {sponsor.rating && (
-                    <span className="hidden md:inline-flex items-center gap-0.5 text-[10px] font-bold text-slate-300">
-                      <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
-                      {sponsor.rating.toFixed(1)}
-                    </span>
-                  )}
                 </NavLink>
 
                 {/* Bonus Code Copy Badge (if available) */}

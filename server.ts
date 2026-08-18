@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -12,10 +13,35 @@ const TELEGRAM_BOT_TOKEN =
   process.env.TELEGRAM_BOT_TOKEN || '8944054737:AAHD_G8mzXVQiYEQnqUDiLa6hSJyRdIyjeY';
 
 // Portal Data & Supabase Configuration
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://pkxcsjxqxzzfsoamyegk.supabase.co';
-const SUPABASE_ANON_KEY =
-  process.env.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBreGNzanhxeHp6ZnNvYW15ZWdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5ODc0MzIsImV4cCI6MjEwMjU2MzQzMn0.1F4NEkWKVRIWlCN882mdUemOMr5Gm0WK7xWcMknIrC0';
+const getValidSupabaseUrl = (): string => {
+  const envUrl = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').trim();
+  if (
+    envUrl &&
+    !envUrl.includes('your-project') &&
+    !envUrl.includes('placeholder') &&
+    !envUrl.includes('example.supabase.co') &&
+    envUrl.startsWith('http')
+  ) {
+    return envUrl;
+  }
+  return 'https://pkxcsjxqxzzfsoamyegk.supabase.co';
+};
+
+const getValidSupabaseKey = (): string => {
+  const envKey = (process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
+  if (
+    envKey &&
+    !envKey.includes('your-anon-key') &&
+    !envKey.includes('dummy') &&
+    envKey.length > 20
+  ) {
+    return envKey;
+  }
+  return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBreGNzanhxeHp6ZnNvYW15ZWdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5ODc0MzIsImV4cCI6MjEwMjU2MzQzMn0.1F4NEkWKVRIWlCN882mdUemOMr5Gm0WK7xWcMknIrC0';
+};
+
+const SUPABASE_URL = getValidSupabaseUrl();
+const SUPABASE_ANON_KEY = getValidSupabaseKey();
 
 interface TelegramCodeEntry {
   code: string;
@@ -511,12 +537,23 @@ app.get('/api/portal/data', async (req, res) => {
 
     const fetchWithTimeout = async (url: string) => {
       try {
-        const response = await fetch(url, {
+        let response = await fetch(url, {
           headers,
           signal: AbortSignal.timeout(6000),
         });
         if (response.ok) {
           return await response.json();
+        }
+        // If order query failed, try simple select=* without order parameters
+        if (url.includes('&order=')) {
+          const simpleUrl = url.split('&order=')[0];
+          response = await fetch(simpleUrl, {
+            headers,
+            signal: AbortSignal.timeout(4000),
+          });
+          if (response.ok) {
+            return await response.json();
+          }
         }
         return [];
       } catch (e) {

@@ -66,6 +66,7 @@ export function App() {
                 }
               />
               <Route path="/site/:slug" element={<SponsorDetailPage />} />
+              <Route path="/sponsors/:slug" element={<SponsorDetailPage />} />
               <Route
                 path="/wheel"
                 element={

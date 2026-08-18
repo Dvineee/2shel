@@ -15,7 +15,6 @@ import {
   Check,
   X,
   ExternalLink,
-  Star,
   Flame,
   Search,
   CheckCircle2,
@@ -23,11 +22,16 @@ import {
   Sparkles,
   ArrowUp,
   ArrowDown,
-  ArrowUpDown,
   RefreshCw,
   Award,
   Crown,
   Layers,
+  FileText,
+  CreditCard,
+  Zap,
+  Clock,
+  Headphones,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
@@ -42,6 +46,7 @@ export const SponsorsManager: React.FC = () => {
   const [reordering, setReordering] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | SponsorCategory | 'active' | 'passive'>('all');
+  const [modalTab, setModalTab] = useState<'general' | 'details' | 'stats_features'>('general');
 
   // Form State
   const [name, setName] = useState('');
@@ -50,8 +55,7 @@ export const SponsorsManager: React.FC = () => {
   const [logoUrl, setLogoUrl] = useState('');
   const [bannerUrl, setBannerUrl] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
-  const [buttonText, setButtonText] = useState('DETAYLARI GÖR');
-  const [rating, setRating] = useState(4.9);
+  const [buttonText, setButtonText] = useState('SİTEYE GİT');
   const [shortDesc, setShortDesc] = useState('');
   const [description, setDescription] = useState('');
   const [featured, setFeatured] = useState(false);
@@ -59,12 +63,17 @@ export const SponsorsManager: React.FC = () => {
   const [active, setActive] = useState(true);
   const [sortOrder, setSortOrder] = useState(1);
   const [bonusCode, setBonusCode] = useState('');
+  const [bonusHeadline, setBonusHeadline] = useState('');
   const [badgeText, setBadgeText] = useState('');
   const [minDeposit, setMinDeposit] = useState('');
   const [withdrawalSpeed, setWithdrawalSpeed] = useState('');
   const [license, setLicense] = useState('');
+  const [rtpRate, setRtpRate] = useState('');
+  const [onlinePlayers, setOnlinePlayers] = useState('');
+  const [liveSupport, setLiveSupport] = useState('7/24 Türkçe Canlı Destek');
+  const [paymentMethodsText, setPaymentMethodsText] = useState('');
 
-  // Dynamic 3 stats
+  // Dynamic stats
   const [stats, setStats] = useState<SponsorStat[]>([
     { label: 'İlk Yatırım', value: '%100' },
     { label: 'Deneme Bonusu', value: '250 TL' },
@@ -81,35 +90,41 @@ export const SponsorsManager: React.FC = () => {
   const openCreateModal = (defaultCategory: SponsorCategory = 'main') => {
     soundEngine.playClick();
     setIsNew(true);
+    setModalTab('general');
     setEditingSponsor({});
     setName('');
     setSlug('');
     setCategory(defaultCategory);
-    setLogoUrl('https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=200&h=100&q=80');
+    setLogoUrl('');
     setBannerUrl('');
-    setWebsiteUrl('https://t.me/shelbyonline');
-    setButtonText('DETAYLARI GÖR');
-    setRating(4.9);
-    setShortDesc('En yüksek oranlar ve anında çekim imkanı.');
-    setDescription('Lisanslı ve güvenilir bahis platformu.');
+    setWebsiteUrl('https://');
+    setButtonText('SİTEYE GİT & KAZAN');
+    setShortDesc('%100 İlk Yatırım & Çevrimsiz Bonus Fırsatı');
+    setDescription('Lisanslı ve güvenilir bahis platformu. Yüksek bonus oranları, anında para çekme ve 7/24 kesintisiz canlı destek hattıyla güvenli bir oyun deneyimi sunar.');
     setFeatured(defaultCategory === 'vip');
     setVerified(true);
     setActive(true);
     setSortOrder(sponsors.length + 1);
-    setBonusCode('SHELBYVIP');
+    setBonusCode('VIP100');
+    setBonusHeadline('Kayıt Olurken (VIP100) Kodunu Kullan, Özel Fırsatları Yakala!');
     setBadgeText(SPONSOR_CATEGORIES[defaultCategory].badgeText);
-    setMinDeposit('50 TL');
-    setWithdrawalSpeed('5 Dakika');
+    setMinDeposit('50 ₺');
+    setWithdrawalSpeed('3 - 15 Dakika');
     setLicense('Curacao eGaming');
+    setRtpRate('%97.8');
+    setOnlinePlayers('1.420');
+    setLiveSupport('7/24 Türkçe Canlı Destek');
+    setPaymentMethodsText('Papara, Havale / EFT, Kripto (USDT), Payfix, Kredi Kartı, Mefete');
     setStats([
       { label: 'İlk Yatırım', value: '%100' },
       { label: 'Deneme Bonusu', value: '250 TL' },
       { label: 'Kayıp Bonusu', value: '%20' },
     ]);
     setFeatures([
-      { text: 'Anında Çekim' },
-      { text: '7/24 Canlı Destek' },
-      { text: 'Lisanslı Altyapı' },
+      { text: 'Anında Çekim İmkanı' },
+      { text: '7/24 Türkçe Canlı Destek' },
+      { text: 'Lisanslı & Güvenilir Altyapı' },
+      { text: 'Zengin Slot & Casino Oyunları' },
     ]);
   };
 
@@ -117,6 +132,7 @@ export const SponsorsManager: React.FC = () => {
     soundEngine.playClick();
     const cat = getSponsorCategory(sponsor);
     setIsNew(false);
+    setModalTab('general');
     setEditingSponsor(sponsor);
     setName(sponsor.name);
     setSlug(sponsor.slug);
@@ -124,19 +140,27 @@ export const SponsorsManager: React.FC = () => {
     setLogoUrl(sponsor.logo_url);
     setBannerUrl(sponsor.banner_url || '');
     setWebsiteUrl(sponsor.website_url);
-    setButtonText(sponsor.button_text || 'DETAYLARI GÖR');
-    setRating(sponsor.rating || 4.9);
-    setShortDesc(sponsor.short_description || '');
+    setButtonText(sponsor.button_text || 'SİTEYE GİT & KAZAN');
+    setShortDesc(sponsor.short_description || sponsor.bonus_text || '');
     setDescription(sponsor.description || '');
     setFeatured(sponsor.featured || cat === 'vip');
     setVerified(sponsor.verified !== false);
     setActive(sponsor.active !== false);
     setSortOrder(sponsor.sort_order || 1);
     setBonusCode(sponsor.bonus_code || '');
+    setBonusHeadline(sponsor.bonus_headline || '');
     setBadgeText(sponsor.badge_text || SPONSOR_CATEGORIES[cat].badgeText);
-    setMinDeposit(sponsor.min_deposit || '');
-    setWithdrawalSpeed(sponsor.withdrawal_speed || '');
-    setLicense(sponsor.license || '');
+    setMinDeposit(sponsor.min_deposit || '50 ₺');
+    setWithdrawalSpeed(sponsor.withdrawal_speed || '3 - 15 Dakika');
+    setLicense(sponsor.license || 'Curacao eGaming');
+    setRtpRate(sponsor.rtp_rate || '%97.8');
+    setOnlinePlayers(sponsor.online_players ? String(sponsor.online_players) : '');
+    setLiveSupport(sponsor.live_support || '7/24 Türkçe Canlı Destek');
+    setPaymentMethodsText(
+      sponsor.payment_methods && sponsor.payment_methods.length > 0
+        ? sponsor.payment_methods.join(', ')
+        : 'Papara, Havale / EFT, Kripto (USDT), Payfix, Kredi Kartı, Mefete'
+    );
     setStats(
       sponsor.stats && sponsor.stats.length > 0
         ? sponsor.stats
@@ -149,7 +173,11 @@ export const SponsorsManager: React.FC = () => {
     setFeatures(
       sponsor.features && sponsor.features.length > 0
         ? sponsor.features
-        : [{ text: 'Anında Çekim' }, { text: '7/24 Destek' }]
+        : [
+            { text: 'Anında Çekim İmkanı' },
+            { text: '7/24 Türkçe Canlı Destek' },
+            { text: 'Lisanslı & Güvenilir Altyapı' },
+          ]
     );
   };
 
@@ -158,7 +186,7 @@ export const SponsorsManager: React.FC = () => {
     setLoading(true);
 
     if (!logoUrl.trim()) {
-      toast.error('Lütfen bir sponsor logo görseli seçin veya yükleyin.');
+      toast.error('Lütfen bir sponsor logosu belirleyin.');
       setLoading(false);
       return;
     }
@@ -166,6 +194,11 @@ export const SponsorsManager: React.FC = () => {
     const generatedSlug = slug.trim()
       ? slug.trim().toLowerCase().replace(/\s+/g, '-')
       : name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+
+    const paymentMethodsParsed = paymentMethodsText
+      .split(',')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
 
     const sponsorData: Partial<Sponsor> = {
       name,
@@ -175,7 +208,6 @@ export const SponsorsManager: React.FC = () => {
       banner_url: bannerUrl,
       website_url: websiteUrl,
       button_text: buttonText,
-      rating,
       short_description: shortDesc,
       description,
       featured: category === 'vip' || featured,
@@ -183,10 +215,15 @@ export const SponsorsManager: React.FC = () => {
       active,
       sort_order: Number(sortOrder) || 1,
       bonus_code: bonusCode,
+      bonus_headline: bonusHeadline,
       badge_text: badgeText || SPONSOR_CATEGORIES[category].badgeText,
       min_deposit: minDeposit,
       withdrawal_speed: withdrawalSpeed,
       license,
+      rtp_rate: rtpRate,
+      online_players: onlinePlayers ? (parseInt(onlinePlayers.replace(/[^0-9]/g, '')) || 0) : undefined,
+      live_support: liveSupport,
+      payment_methods: paymentMethodsParsed,
       stats,
       features,
     };
@@ -194,10 +231,10 @@ export const SponsorsManager: React.FC = () => {
     try {
       if (isNew) {
         await db.createSponsor(sponsorData as any);
-        toast.success(`"${name}" sponsoru ${SPONSOR_CATEGORIES[category].name} kategorisine eklendi!`);
+        toast.success(`"${name}" sponsoru başarıyla eklendi!`);
       } else if (editingSponsor && editingSponsor.id) {
         await db.updateSponsor(editingSponsor.id, sponsorData);
-        toast.success(`"${name}" sponsoru başarıyla güncellendi!`);
+        toast.success(`"${name}" sponsorunun tüm detayları güncellendi!`);
       }
       setEditingSponsor(null);
       await refreshAll();
@@ -250,55 +287,69 @@ export const SponsorsManager: React.FC = () => {
     soundEngine.playClick();
     setReordering(true);
     try {
-      await db.moveSponsorOrder(id, direction);
-      toast.success('Sıralama güncellendi!');
+      const sorted = sortSponsors(sponsors);
+      const index = sorted.findIndex((s) => s.id === id);
+      if (index === -1) return;
+
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= sorted.length) return;
+
+      const currentItem = sorted[index];
+      const targetItem = sorted[targetIndex];
+
+      const currentOrder = currentItem.sort_order;
+      const targetOrder = targetItem.sort_order;
+
+      const newCurrentOrder = currentOrder === targetOrder ? (direction === 'up' ? targetOrder - 1 : targetOrder + 1) : targetOrder;
+      const newTargetOrder = currentOrder;
+
+      await db.updateSponsor(currentItem.id, { sort_order: newCurrentOrder });
+      await db.updateSponsor(targetItem.id, { sort_order: newTargetOrder });
+
       await refreshAll();
+      toast.success('Sıralama güncellendi');
     } catch {
-      toast.error('Sıralama değiştirilemedi');
+      toast.error('Sıralama güncellenemedi');
     } finally {
       setReordering(false);
     }
   };
 
   const handleQuickSortChange = async (id: string, newOrder: number) => {
-    soundEngine.playClick();
-    setReordering(true);
     try {
-      await db.setSponsorSortOrder(id, newOrder);
-      toast.success(`Sıralama #${newOrder} olarak güncellendi!`);
+      await db.updateSponsor(id, { sort_order: newOrder });
+      toast.success('Sıra numarası kaydedildi');
       await refreshAll();
     } catch {
-      toast.error('Sıra numarası güncellenemedi');
-    } finally {
-      setReordering(false);
+      toast.error('Sıra güncellenemedi');
     }
   };
 
-  // Re-index all sponsors 1..N sequentially
-  const handleAutoNormalizeSort = async () => {
-    soundEngine.playClick();
-    const sorted = sortSponsors(sponsors);
-    const orderedIds = sorted.map((s) => s.id);
-    await db.reorderSponsors(orderedIds);
-    toast.success('Tüm sponsorların sıralama numaraları 1..N olarak yeniden düzenlendi!');
-    await refreshAll();
-  };
-
-  // Stat handlers
-  const handleStatChange = (index: number, field: 'label' | 'value', text: string) => {
+  const handleStatChange = (index: number, field: 'label' | 'value', value: string) => {
     const updated = [...stats];
-    updated[index][field] = text;
+    updated[index] = { ...updated[index], [field]: value };
     setStats(updated);
   };
 
-  // Feature handlers
+  const handleAddStat = () => {
+    setStats([...stats, { label: 'Yeni Başlık', value: 'Değer' }]);
+  };
+
+  const handleRemoveStat = (index: number) => {
+    if (stats.length <= 1) {
+      toast.error('En az bir istatistik kutusu bulunmalıdır.');
+      return;
+    }
+    setStats(stats.filter((_, i) => i !== index));
+  };
+
   const handleAddFeature = () => {
-    setFeatures([...features, { text: 'Yeni Avantaj' }]);
+    setFeatures([...features, { text: 'Yeni Avantaj / Özellik' }]);
   };
 
   const handleFeatureChange = (index: number, text: string) => {
     const updated = [...features];
-    updated[index].text = text;
+    updated[index] = { ...updated[index], text };
     setFeatures(updated);
   };
 
@@ -306,212 +357,120 @@ export const SponsorsManager: React.FC = () => {
     setFeatures(features.filter((_, i) => i !== index));
   };
 
-  // Sorted and filtered list
-  const sortedAll = sortSponsors(sponsors);
-
-  const filteredSponsors = sortedAll.filter((s) => {
-    const sCat = getSponsorCategory(s);
+  // Filter sponsors
+  const filteredSponsors = sortSponsors(sponsors).filter((s) => {
     const matchesSearch =
-      !searchTerm ||
       s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.slug.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (s.bonus_code && s.bonus_code.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const matchesCategory =
-      categoryFilter === 'all'
-        ? true
-        : categoryFilter === 'active'
-        ? s.active !== false
-        : categoryFilter === 'passive'
-        ? s.active === false
-        : sCat === categoryFilter;
+    if (!matchesSearch) return false;
 
-    return matchesSearch && matchesCategory;
+    if (categoryFilter === 'all') return true;
+    if (categoryFilter === 'active') return s.active !== false;
+    if (categoryFilter === 'passive') return s.active === false;
+    return getSponsorCategory(s) === categoryFilter;
   });
 
-  const mainCount = sponsors.filter((s) => getSponsorCategory(s) === 'main').length;
-  const vipCount = sponsors.filter((s) => getSponsorCategory(s) === 'vip').length;
-  const trustedCount = sponsors.filter((s) => getSponsorCategory(s) === 'trusted').length;
-  const activeCount = sponsors.filter((s) => s.active !== false).length;
-  const passiveCount = sponsors.filter((s) => s.active === false).length;
-
   return (
-    <div className="space-y-6 animate-in fade-in max-w-6xl pb-16">
-      {/* Top Action Bar */}
+    <div className="space-y-6">
+      {/* Header & Quick Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-white flex items-center gap-2.5">
-            <ShieldCheck className="w-7 h-7 text-amber-400" />
-            Sponsor Yönetimi & 3 Katmanlı Kategori Sistemi
+          <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
+            <Crown className="w-6 h-6 text-violet-400" />
+            Sponsor Yönetim Paneli
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Sponsorları <span className="text-amber-300 font-bold">ANA SPONSORLAR</span>, <span className="text-purple-300 font-bold">VIP SPONSORLAR</span> ve <span className="text-emerald-300 font-bold">GÜVENİLİR SPONSORLAR</span> olarak yönetin ve sıralama önceliklerini belirleyin.
+            Ana sayfa kartlarını ve <strong>Sponsor Detay Sayfası</strong>ndaki tüm verileri (Çekim Hızı, Min. Yatırım, Ödeme Yöntemleri, İnceleme) buradan düzenleyin.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleAutoNormalizeSort}
-            className="px-3.5 py-2.5 rounded-xl bg-violet-950/80 hover:bg-violet-900 border border-violet-700/50 text-violet-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow"
-            title="Sıralama numaralarını 1'den başlayarak otomatik düzeltir"
+            onClick={() => refreshAll()}
+            className="p-2.5 rounded-xl bg-violet-950/60 border border-violet-800/40 text-violet-300 hover:text-white hover:bg-violet-900/50 transition-colors cursor-pointer"
+            title="Yenile"
           >
-            <ArrowUpDown className="w-4 h-4 text-violet-400" />
-            <span>Sıralamayı Sıfırla (1..N)</span>
+            <RefreshCw className="w-4 h-4" />
           </button>
-
           <button
             onClick={() => openCreateModal('main')}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-900/40 flex items-center gap-2 cursor-pointer transition-all active:scale-95"
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-violet-900/40 transition-all cursor-pointer active:scale-95"
           >
-            <Plus className="w-4 h-4 text-slate-950" />
+            <Plus className="w-4 h-4" />
             <span>Yeni Sponsor Ekle</span>
           </button>
         </div>
       </div>
 
-      {/* 3 Categories Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-        <div
-          onClick={() => setCategoryFilter('main')}
-          className={`p-4 rounded-2xl bg-gradient-to-b from-[#1c1408] to-[#120b24] border transition-all cursor-pointer ${
-            categoryFilter === 'main'
-              ? 'border-amber-500 ring-2 ring-amber-500/30 shadow-lg shadow-amber-900/30'
-              : 'border-amber-700/30 hover:border-amber-500/50'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-amber-300 font-bold flex items-center gap-1.5">
-              <Crown className="w-4 h-4 text-amber-400" />
-              ANA SPONSORLAR
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-black">
-              1. SIRA
-            </span>
-          </div>
-          <p className="text-2xl font-black text-amber-400 mt-2">{mainCount}</p>
-          <span className="text-[11px] text-amber-400/70">En üst ana vitrin</span>
+      {/* Filter Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#120b24] p-3 rounded-2xl border border-violet-800/30">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            onClick={() => setCategoryFilter('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              categoryFilter === 'all'
+                ? 'bg-violet-600 text-white shadow-md'
+                : 'text-slate-300 hover:bg-violet-950/60'
+            }`}
+          >
+            Tümü ({sponsors.length})
+          </button>
+          <button
+            onClick={() => setCategoryFilter('main')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              categoryFilter === 'main'
+                ? 'bg-violet-600 text-white shadow-md'
+                : 'text-violet-300 hover:bg-violet-950/60'
+            }`}
+          >
+            👑 Ana Sponsorlar
+          </button>
+          <button
+            onClick={() => setCategoryFilter('vip')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              categoryFilter === 'vip'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'text-purple-300 hover:bg-violet-950/60'
+            }`}
+          >
+            ⭐ VIP Sponsorlar
+          </button>
+          <button
+            onClick={() => setCategoryFilter('trusted')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              categoryFilter === 'trusted'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-emerald-300 hover:bg-violet-950/60'
+            }`}
+          >
+            🛡️ Güvenilir
+          </button>
         </div>
 
-        <div
-          onClick={() => setCategoryFilter('vip')}
-          className={`p-4 rounded-2xl bg-gradient-to-b from-[#1b0d2a] to-[#120b24] border transition-all cursor-pointer ${
-            categoryFilter === 'vip'
-              ? 'border-purple-500 ring-2 ring-purple-500/30 shadow-lg shadow-purple-900/30'
-              : 'border-purple-700/30 hover:border-purple-500/50'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-purple-300 font-bold flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-purple-400" />
-              VIP SPONSORLAR
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-black">
-              2. SIRA
-            </span>
-          </div>
-          <p className="text-2xl font-black text-purple-400 mt-2">{vipCount}</p>
-          <span className="text-[11px] text-purple-400/70">Öne çıkan VIP siteler</span>
-        </div>
-
-        <div
-          onClick={() => setCategoryFilter('trusted')}
-          className={`p-4 rounded-2xl bg-gradient-to-b from-[#091a18] to-[#120b24] border transition-all cursor-pointer ${
-            categoryFilter === 'trusted'
-              ? 'border-emerald-500 ring-2 ring-emerald-500/30 shadow-lg shadow-emerald-900/30'
-              : 'border-emerald-700/30 hover:border-emerald-500/50'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-emerald-300 font-bold flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              GÜVENİLİR SPONSORLAR
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-black">
-              3. SIRA
-            </span>
-          </div>
-          <p className="text-2xl font-black text-emerald-400 mt-2">{trustedCount}</p>
-          <span className="text-[11px] text-emerald-400/70">Onaylı lisanslı platformlar</span>
-        </div>
-
-        <div
-          onClick={() => setCategoryFilter('active')}
-          className={`p-4 rounded-2xl bg-[#120b24] border transition-all cursor-pointer ${
-            categoryFilter === 'active'
-              ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-              : 'border-emerald-800/30 hover:border-emerald-600/40'
-          }`}
-        >
-          <span className="text-xs text-slate-400 font-semibold">Yayında (Aktif)</span>
-          <p className="text-2xl font-black text-emerald-400 mt-2">{activeCount}</p>
-          <span className="text-[11px] text-slate-500">Ziyaretçilere açık</span>
-        </div>
-
-        <div
-          onClick={() => setCategoryFilter('passive')}
-          className={`p-4 rounded-2xl bg-[#120b24] border transition-all cursor-pointer ${
-            categoryFilter === 'passive'
-              ? 'border-rose-500 ring-2 ring-rose-500/30'
-              : 'border-rose-800/30 hover:border-rose-600/40'
-          }`}
-        >
-          <span className="text-xs text-slate-400 font-semibold">Gizli (Pasif)</span>
-          <p className="text-2xl font-black text-rose-400 mt-2">{passiveCount}</p>
-          <span className="text-[11px] text-slate-500">Geçici olarak yayından çekilmiş</span>
-        </div>
-      </div>
-
-      {/* Search and Filters */}
-      <div className="p-4 rounded-2xl bg-[#120b24] border border-violet-800/30 flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="relative w-full md:w-80">
-          <Search className="w-4 h-4 text-violet-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <div className="relative w-full sm:w-64">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
+            placeholder="Sponsor veya kod ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Sponsor adı, slug veya bonus kodu ara..."
-            className="w-full pl-9 pr-4 py-2 rounded-xl bg-[#090614] border border-violet-800/40 text-white text-xs placeholder-slate-500 focus:outline-none focus:border-violet-500"
+            className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-violet-950/50 border border-violet-800/40 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-violet-500"
           />
-        </div>
-
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
-          {[
-            { id: 'all', label: `Tümü (${sponsors.length})` },
-            { id: 'main', label: `👑 Ana Sponsorlar (${mainCount})` },
-            { id: 'vip', label: `⭐ VIP Sponsorlar (${vipCount})` },
-            { id: 'trusted', label: `🛡️ Güvenilir Sponsorlar (${trustedCount})` },
-            { id: 'active', label: `Aktif (${activeCount})` },
-            { id: 'passive', label: `Pasif (${passiveCount})` },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                soundEngine.playClick();
-                setCategoryFilter(tab.id as any);
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                categoryFilter === tab.id
-                  ? 'bg-violet-600 text-white shadow'
-                  : 'bg-[#090614] text-slate-400 hover:text-white border border-violet-900/40'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
         </div>
       </div>
 
       {/* Sponsors Table */}
-      <div className="rounded-3xl bg-[#120b24] border border-violet-800/30 overflow-hidden shadow-xl">
+      <div className="rounded-2xl sm:rounded-3xl bg-[#120b24] border border-violet-800/30 overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-300">
             <thead className="bg-violet-950/60 text-violet-300 uppercase text-[11px] font-bold border-b border-violet-900/40">
               <tr>
-                <th className="px-3 py-3.5 text-center w-24">Sıra & Öncelik</th>
+                <th className="px-3 py-3.5 text-center w-24">Sıra #</th>
                 <th className="px-3 py-3.5 w-44">Kategori</th>
                 <th className="px-4 py-3.5">Logo & Sponsor</th>
-                <th className="px-4 py-3.5">Bonus & İstatistikler</th>
-                <th className="px-3 py-3.5 text-center">Puan</th>
+                <th className="px-4 py-3.5">Bonus & Detay Bilgileri</th>
                 <th className="px-3 py-3.5 text-center">Tıklama</th>
                 <th className="px-4 py-3.5 text-center">Yayın Durumu</th>
                 <th className="px-4 py-3.5 text-right">İşlemler</th>
@@ -520,14 +479,13 @@ export const SponsorsManager: React.FC = () => {
             <tbody className="divide-y divide-violet-900/20">
               {filteredSponsors.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={7} className="py-12 text-center text-slate-400">
                     Kriterlere uygun sponsor bulunamadı.
                   </td>
                 </tr>
               ) : (
                 filteredSponsors.map((sponsor, index) => {
                   const sponsorCat = getSponsorCategory(sponsor);
-                  const catConfig = SPONSOR_CATEGORIES[sponsorCat];
 
                   return (
                     <tr
@@ -569,42 +527,21 @@ export const SponsorsManager: React.FC = () => {
                                 handleQuickSortChange(sponsor.id, val);
                               }
                             }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                const val = parseInt((e.target as HTMLInputElement).value);
-                                if (!isNaN(val) && val !== sponsor.sort_order) {
-                                  handleQuickSortChange(sponsor.id, val);
-                                }
-                              }
-                            }}
-                            className="w-10 h-7 rounded-lg bg-violet-950/90 border border-violet-800/50 text-white font-black text-xs text-center focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 shadow-inner"
-                            title="Sıra numarasını değiştirmek için yazıp Enter'a veya dışarı tıklayın"
+                            className="w-10 h-7 rounded-lg bg-violet-950/90 border border-violet-800/50 text-white font-black text-xs text-center focus:outline-none focus:border-violet-400 shadow-inner"
                           />
                         </div>
                       </td>
 
-                      {/* Category Badge & Quick Switcher */}
+                      {/* Category Badge */}
                       <td className="px-3 py-4">
                         <select
                           value={sponsorCat}
                           onChange={(e) => handleCategoryChangeQuick(sponsor, e.target.value as SponsorCategory)}
-                          className={`w-full text-[11px] font-black rounded-lg px-2.5 py-1.5 border cursor-pointer focus:outline-none transition-all ${
-                            sponsorCat === 'main'
-                              ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25'
-                              : sponsorCat === 'vip'
-                              ? 'bg-purple-500/15 text-purple-300 border-purple-500/40 hover:bg-purple-500/25'
-                              : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
-                          }`}
+                          className="w-full text-[11px] font-black rounded-lg px-2.5 py-1.5 border cursor-pointer focus:outline-none transition-all bg-[#120b24] text-violet-200 border-violet-700/50"
                         >
-                          <option value="main" className="bg-[#120b24] text-amber-300 font-bold">
-                            👑 ANA SPONSOR
-                          </option>
-                          <option value="vip" className="bg-[#120b24] text-purple-300 font-bold">
-                            ⭐ VIP SPONSOR
-                          </option>
-                          <option value="trusted" className="bg-[#120b24] text-emerald-300 font-bold">
-                            🛡️ GÜVENİLİR SPONSOR
-                          </option>
+                          <option value="main">👑 ANA SPONSOR</option>
+                          <option value="vip">⭐ VIP SPONSOR</option>
+                          <option value="trusted">🛡️ GÜVENİLİR SPONSOR</option>
                         </select>
                       </td>
 
@@ -627,36 +564,26 @@ export const SponsorsManager: React.FC = () => {
                               {sponsor.verified && (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               )}
-                              {sponsor.badge_text && (
-                                <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold">
-                                  {sponsor.badge_text}
-                                </span>
-                              )}
                             </div>
                             <span className="text-[11px] text-slate-400 font-mono">
-                              /{sponsor.slug}
+                              /site/{sponsor.slug}
                             </span>
                           </div>
                         </div>
                       </td>
 
-                      {/* Stats */}
+                      {/* Stats & Details */}
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-1 max-w-xs">
                           {(sponsor.stats || []).slice(0, 3).map((s, i) => (
                             <span
                               key={i}
-                              className="px-2 py-0.5 rounded-md bg-violet-950/60 border border-violet-800/30 text-[10px] text-amber-300 font-bold"
+                              className="px-2 py-0.5 rounded-md bg-violet-950/60 border border-violet-800/30 text-[10px] text-violet-200 font-bold"
                             >
                               {s.label}: {s.value}
                             </span>
                           ))}
                         </div>
-                      </td>
-
-                      {/* Rating */}
-                      <td className="px-3 py-4 text-center font-bold text-amber-400">
-                        ★ {sponsor.rating?.toFixed(1) || '4.9'}
                       </td>
 
                       {/* Clicks */}
@@ -677,12 +604,12 @@ export const SponsorsManager: React.FC = () => {
                           {sponsor.active ? (
                             <>
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Yayında (Aktif)</span>
+                              <span>Yayında</span>
                             </>
                           ) : (
                             <>
                               <XCircle className="w-3.5 h-3.5 text-rose-400" />
-                              <span>Gizli (Pasif)</span>
+                              <span>Gizli</span>
                             </>
                           )}
                         </button>
@@ -694,7 +621,7 @@ export const SponsorsManager: React.FC = () => {
                           <button
                             onClick={() => openEditModal(sponsor)}
                             className="p-2 rounded-xl bg-violet-950/60 hover:bg-violet-800 text-violet-300 hover:text-white border border-violet-800/30 transition-colors cursor-pointer"
-                            title="Düzenle"
+                            title="Tüm Detayları Düzenle"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -716,312 +643,465 @@ export const SponsorsManager: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal for Create/Edit */}
+      {/* Comprehensive Modal for Create / Edit */}
       {editingSponsor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-          <div className="max-w-2xl w-full my-8 rounded-3xl bg-[#120b24] border border-violet-700/50 p-6 sm:p-8 shadow-2xl space-y-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="max-w-3xl w-full my-6 rounded-3xl bg-[#120b24] border border-violet-700/50 p-6 sm:p-8 shadow-2xl space-y-5">
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-violet-900/30 pb-4">
-              <h3 className="text-lg font-black text-white flex items-center gap-2">
-                {isNew ? 'Yeni Sponsor Kartı Ekle' : `${name} Sponsorunu Düzenle`}
-              </h3>
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  {isNew ? 'Yeni Sponsor Ekle' : `${name} Sponsorunu & Detaylarını Düzenle`}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Kart bilgilerini ve detay sayfasındaki tüm inceleme, lisans ve ödeme verilerini yapılandırın.
+                </p>
+              </div>
               <button
                 onClick={() => setEditingSponsor(null)}
-                className="p-2 text-slate-400 hover:text-white cursor-pointer"
+                className="p-2 text-slate-400 hover:text-white cursor-pointer rounded-lg hover:bg-violet-950/60 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-              {/* Category Selector (3 Categories) */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-200">
-                  Sponsor Kategorisi *
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div
-                    onClick={() => {
-                      setCategory('main');
-                      setBadgeText(SPONSOR_CATEGORIES.main.badgeText);
-                    }}
-                    className={`p-3 rounded-2xl border cursor-pointer transition-all ${
-                      category === 'main'
-                        ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/30'
-                        : 'bg-black/30 border-violet-800/40 hover:border-amber-500/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Crown className="w-4 h-4 text-amber-400" />
-                      <span className="text-xs font-black text-amber-300">ANA SPONSOR</span>
+            {/* Modal Navigation Tabs */}
+            <div className="flex border-b border-violet-900/40 gap-2">
+              <button
+                type="button"
+                onClick={() => setModalTab('general')}
+                className={`px-4 py-2.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  modalTab === 'general'
+                    ? 'border-violet-500 text-white bg-violet-950/40 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Crown className="w-3.5 h-3.5" />
+                <span>1. Genel & Kart Bilgileri</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('details')}
+                className={`px-4 py-2.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  modalTab === 'details'
+                    ? 'border-violet-500 text-white bg-violet-950/40 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>2. Detay Sayfası Verileri (RTP, Lisans, vb.)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('stats_features')}
+                className={`px-4 py-2.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                  modalTab === 'stats_features'
+                    ? 'border-violet-500 text-white bg-violet-950/40 rounded-t-lg'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>3. İstatistik & Avantajlar</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSave} className="space-y-4 max-h-[68vh] overflow-y-auto pr-2">
+              {/* TAB 1: GENEL & KART BİLGİLERİ */}
+              {modalTab === 'general' && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  {/* Category Selector */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-200">
+                      Sponsor Kategorisi *
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div
+                        onClick={() => {
+                          setCategory('main');
+                          setBadgeText(SPONSOR_CATEGORIES.main.badgeText);
+                        }}
+                        className={`p-3 rounded-2xl border cursor-pointer transition-all ${
+                          category === 'main'
+                            ? 'bg-violet-950/80 border-violet-500 ring-2 ring-violet-500/30'
+                            : 'bg-black/30 border-violet-800/40 hover:border-violet-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Crown className="w-4 h-4 text-violet-400" />
+                          <span className="text-xs font-black text-violet-200">ANA SPONSOR</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          1. Kategori (En üst sıralarda yer alır)
+                        </p>
+                      </div>
+
+                      <div
+                        onClick={() => {
+                          setCategory('vip');
+                          setBadgeText(SPONSOR_CATEGORIES.vip.badgeText);
+                        }}
+                        className={`p-3 rounded-2xl border cursor-pointer transition-all ${
+                          category === 'vip'
+                            ? 'bg-purple-950/80 border-purple-500 ring-2 ring-purple-500/30'
+                            : 'bg-black/30 border-violet-800/40 hover:border-purple-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Award className="w-4 h-4 text-purple-400" />
+                          <span className="text-xs font-black text-purple-200">VIP SPONSOR</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          2. Kategori (Özel VIP rozeti)
+                        </p>
+                      </div>
+
+                      <div
+                        onClick={() => {
+                          setCategory('trusted');
+                          setBadgeText(SPONSOR_CATEGORIES.trusted.badgeText);
+                        }}
+                        className={`p-3 rounded-2xl border cursor-pointer transition-all ${
+                          category === 'trusted'
+                            ? 'bg-emerald-950/80 border-emerald-500 ring-2 ring-emerald-500/30'
+                            : 'bg-black/30 border-violet-800/40 hover:border-emerald-500/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                          <span className="text-xs font-black text-emerald-200">GÜVENİLİR SPONSOR</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          3. Kategori (Doğrulanmış platformlar)
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      1. Kategori (En üstte altın çerçeve)
-                    </p>
                   </div>
 
-                  <div
-                    onClick={() => {
-                      setCategory('vip');
-                      setBadgeText(SPONSOR_CATEGORIES.vip.badgeText);
-                    }}
-                    className={`p-3 rounded-2xl border cursor-pointer transition-all ${
-                      category === 'vip'
-                        ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/30'
-                        : 'bg-black/30 border-violet-800/40 hover:border-purple-500/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Award className="w-4 h-4 text-purple-400" />
-                      <span className="text-xs font-black text-purple-300">VIP SPONSOR</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      2. Kategori (Mor VIP rozet)
-                    </p>
-                  </div>
-
-                  <div
-                    onClick={() => {
-                      setCategory('trusted');
-                      setBadgeText(SPONSOR_CATEGORIES.trusted.badgeText);
-                    }}
-                    className={`p-3 rounded-2xl border cursor-pointer transition-all ${
-                      category === 'trusted'
-                        ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/30'
-                        : 'bg-black/30 border-violet-800/40 hover:border-emerald-500/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-black text-emerald-300">GÜVENİLİR SPONSOR</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      3. Kategori (Onaylı platformlar)
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Sponsor Adı *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    URL Slug (örn: casinomaxi)
-                  </label>
-                  <input
-                    type="text"
-                    value={slug}
-                    onChange={(e) => setSlug(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-              </div>
-
-              {/* Sponsor Logo with File Upload & URL support */}
-              <div className="p-3.5 rounded-2xl bg-violet-950/30 border border-violet-800/30 space-y-3">
-                <ImageUploadField
-                  id="sponsor-logo-upload"
-                  label="Sponsor Logo Görseli"
-                  required
-                  value={logoUrl}
-                  onChange={setLogoUrl}
-                  helpText="PNG, JPG, SVG veya WEBP yükleyin. Transparan veya koyu temaya uygun logolar önerilir."
-                  aspectHint="Önerilen: 300x120px veya kare"
-                  maxDimension={600}
-                  previewClassName="h-12 w-28"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Yönlendirme / Ortaklık Linki (Hedef URL) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={websiteUrl}
-                    onChange={(e) => setWebsiteUrl(e.target.value)}
-                    placeholder="https://..."
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Buton Metni
-                  </label>
-                  <input
-                    type="text"
-                    value={buttonText}
-                    onChange={(e) => setButtonText(e.target.value)}
-                    placeholder="Örn: DETAYLARI GÖR veya HEMEN OYNA"
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Sıralama Önceliği (Sıra #) *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={sortOrder}
-                    onChange={(e) => setSortOrder(parseInt(e.target.value) || 1)}
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-amber-500/50 text-amber-300 font-bold text-xs focus:outline-none focus:border-amber-400"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">Küçük numaralar önde çıkar</span>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Rozet Yazısı (Badge)
-                  </label>
-                  <input
-                    type="text"
-                    value={badgeText}
-                    onChange={(e) => setBadgeText(e.target.value)}
-                    placeholder="Örn: ANA SPONSOR"
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Puan (1.0 - 5.0)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="1"
-                    max="5"
-                    value={rating}
-                    onChange={(e) => setRating(parseFloat(e.target.value))}
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Özel Bonus Kodu
-                  </label>
-                  <input
-                    type="text"
-                    value={bonusCode}
-                    onChange={(e) => setBonusCode(e.target.value)}
-                    placeholder="Örn: SHELBYVIP"
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Min Yatırım
-                  </label>
-                  <input
-                    type="text"
-                    value={minDeposit}
-                    onChange={(e) => setMinDeposit(e.target.value)}
-                    placeholder="Örn: 50 TL"
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Çekim Hızı
-                  </label>
-                  <input
-                    type="text"
-                    value={withdrawalSpeed}
-                    onChange={(e) => setWithdrawalSpeed(e.target.value)}
-                    placeholder="Örn: 5 Dakika"
-                    className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Kısa Açıklama (Kart üzerinde görünür)
-                </label>
-                <input
-                  type="text"
-                  value={shortDesc}
-                  onChange={(e) => setShortDesc(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
-                />
-              </div>
-
-              {/* 3 Dynamic Statistics */}
-              <div className="p-4 rounded-2xl bg-violet-950/30 border border-violet-900/30 space-y-3">
-                <label className="block text-xs font-bold text-amber-300">
-                  Kart Üzerindeki 3 Dinamik İstatistik Kutusu
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {stats.slice(0, 3).map((stat, idx) => (
-                    <div key={idx} className="space-y-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Sponsor Adı *
+                      </label>
                       <input
                         type="text"
-                        placeholder="Başlık (örn: İlk Yatırım)"
-                        value={stat.label}
-                        onChange={(e) => handleStatChange(idx, 'label', e.target.value)}
-                        className="w-full p-2 text-[11px] rounded-lg bg-[#0d0918] border border-violet-800/40 text-slate-300"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Değer (örn: %100)"
-                        value={stat.value}
-                        onChange={(e) => handleStatChange(idx, 'value', e.target.value)}
-                        className="w-full p-2 text-xs font-bold rounded-lg bg-[#0d0918] border border-amber-500/40 text-amber-300"
+                        required
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Örn: Bets10"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
                       />
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        URL Slug (Detay sayfası adresi: /site/slug)
+                      </label>
+                      <input
+                        type="text"
+                        value={slug}
+                        onChange={(e) => setSlug(e.target.value)}
+                        placeholder="Örn: bets10"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500 font-mono"
+                      />
+                    </div>
+                  </div>
 
-              {/* Dynamic Feature Bullets */}
-              <div className="p-4 rounded-2xl bg-violet-950/30 border border-violet-900/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-200">
-                    Özellik Maddeleri (Checklist)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleAddFeature}
-                    className="text-[11px] text-violet-400 font-bold hover:underline cursor-pointer"
-                  >
-                    + Madde Ekle
-                  </button>
-                </div>
-                {features.map((feat, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
+                  {/* Logo 400x400 Upload */}
+                  <div className="p-3.5 rounded-2xl bg-violet-950/30 border border-violet-800/30 space-y-3">
+                    <ImageUploadField
+                      id="sponsor-logo-upload"
+                      label="Sponsor Logo / 400x400 Görseli *"
+                      required
+                      value={logoUrl}
+                      onChange={setLogoUrl}
+                      helpText="400x400 piksel kare görsel yükleyebilir veya bağlantı girebilirsiniz. Kartın üst kısmına tam oturur."
+                      aspectHint="400x400 Kare (1:1)"
+                      maxDimension={600}
+                      previewClassName="h-16 w-16"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Yönlendirme / Ortaklık Linki (Hedef URL) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={websiteUrl}
+                        onChange={(e) => setWebsiteUrl(e.target.value)}
+                        placeholder="https://..."
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Buton Metni
+                      </label>
+                      <input
+                        type="text"
+                        value={buttonText}
+                        onChange={(e) => setButtonText(e.target.value)}
+                        placeholder="Örn: SİTEYE GİT & KAZAN"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Sıralama Önceliği (Sıra #) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={sortOrder}
+                        onChange={(e) => setSortOrder(parseInt(e.target.value) || 1)}
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-700/50 text-violet-200 font-bold text-xs focus:outline-none focus:border-violet-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Rozet Yazısı (Sağ Üst Rozet)
+                      </label>
+                      <input
+                        type="text"
+                        value={badgeText}
+                        onChange={(e) => setBadgeText(e.target.value)}
+                        placeholder="Örn: ANA SPONSOR"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Kısa Açıklama (Kart Üzerindeki Slogan)
+                    </label>
                     <input
                       type="text"
-                      value={feat.text}
-                      onChange={(e) => handleFeatureChange(idx, e.target.value)}
-                      className="flex-1 p-2 text-xs rounded-lg bg-[#0d0918] border border-violet-800/40 text-white"
+                      value={shortDesc}
+                      onChange={(e) => setShortDesc(e.target.value)}
+                      placeholder="Örn: %100 İlk Yatırım & Çevrimsiz Kayıp Bonusu"
+                      className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
                     />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveFeature(idx)}
-                      className="p-2 text-rose-400 hover:text-rose-300 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
+
+              {/* TAB 2: DETAY SAYFASI VERİLERİ */}
+              {modalTab === 'details' && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  {/* Banner / Cover image for detail page */}
+                  <div className="p-3.5 rounded-2xl bg-violet-950/30 border border-violet-800/30 space-y-3">
+                    <ImageUploadField
+                      id="sponsor-banner-upload"
+                      label="Detay Sayfası Kapak Banner Görseli (İsteğe Bağlı)"
+                      value={bannerUrl}
+                      onChange={setBannerUrl}
+                      helpText="Detay sayfasının en üstündeki geniş yatay kapak görseli. Boş bırakılırsa logodan estetik bir arka plan oluşturulur."
+                      aspectHint="1200x400 Yatay Banner"
+                      maxDimension={1200}
+                      previewClassName="h-16 w-36"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Özel Bonus / Promosyon Kodu
+                      </label>
+                      <input
+                        type="text"
+                        value={bonusCode}
+                        onChange={(e) => setBonusCode(e.target.value)}
+                        placeholder="Örn: VIP100"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Bonus Başlığı / Sloganı (Detay Kod Çubuğu)
+                      </label>
+                      <input
+                        type="text"
+                        value={bonusHeadline}
+                        onChange={(e) => setBonusHeadline(e.target.value)}
+                        placeholder="Örn: Kayıt Olurken Bu Kodu Kullan, Ekstra %30 Bonus Kazan!"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-violet-400" />
+                        Çekim Hızı
+                      </label>
+                      <input
+                        type="text"
+                        value={withdrawalSpeed}
+                        onChange={(e) => setWithdrawalSpeed(e.target.value)}
+                        placeholder="Örn: 3 - 15 Dakika"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                        <CreditCard className="w-3.5 h-3.5 text-violet-400" />
+                        Minimum Yatırım
+                      </label>
+                      <input
+                        type="text"
+                        value={minDeposit}
+                        onChange={(e) => setMinDeposit(e.target.value)}
+                        placeholder="Örn: 50 ₺"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1">
+                        <Headphones className="w-3.5 h-3.5 text-violet-400" />
+                        Canlı Destek
+                      </label>
+                      <input
+                        type="text"
+                        value={liveSupport}
+                        onChange={(e) => setLiveSupport(e.target.value)}
+                        placeholder="Örn: 7/24 Türkçe Canlı Destek"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        Aktif Oyuncu Sayısı
+                      </label>
+                      <input
+                        type="text"
+                        value={onlinePlayers}
+                        onChange={(e) => setOnlinePlayers(e.target.value)}
+                        placeholder="Örn: 1.420"
+                        className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Desteklenen Ödeme Yöntemleri (Virgülle Ayırın)
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentMethodsText}
+                      onChange={(e) => setPaymentMethodsText(e.target.value)}
+                      placeholder="Papara, Havale / EFT, Kripto (USDT), Payfix, Kredi Kartı, Mefete"
+                      className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      Detay sayfasının sağ kenar çubuğunda rozetler halinde listelenir.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Detaylı Platform İnceleme & Açıklama Metni
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Platformun lisansı, güvenilirliği, oyun sağlayıcıları ve ödeme yöntemleri hakkında detaylı inceleme metni..."
+                      className="w-full p-3 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white text-xs focus:outline-none focus:border-violet-500 leading-relaxed"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: İSTATİSTİKLER & ÖNE ÇIKAN AVANTAJLAR */}
+              {modalTab === 'stats_features' && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  {/* Dynamic Statistics Boxes */}
+                  <div className="p-4 rounded-2xl bg-violet-950/30 border border-violet-900/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-violet-200">
+                        Kart & Detay İstatistik / Bonus Kutuları
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAddStat}
+                        className="text-[11px] text-violet-400 font-bold hover:underline cursor-pointer"
+                      >
+                        + Kutu Ekle
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {stats.map((stat, idx) => (
+                        <div key={idx} className="space-y-1.5 p-2 rounded-xl bg-[#0d0918] border border-violet-800/40 relative">
+                          <input
+                            type="text"
+                            placeholder="Başlık (örn: İlk Yatırım)"
+                            value={stat.label}
+                            onChange={(e) => handleStatChange(idx, 'label', e.target.value)}
+                            className="w-full p-1.5 text-[11px] rounded-lg bg-black/40 border border-violet-900/50 text-slate-300 focus:outline-none focus:border-violet-500"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Değer (örn: %100 veya 500 TL)"
+                            value={stat.value}
+                            onChange={(e) => handleStatChange(idx, 'value', e.target.value)}
+                            className="w-full p-1.5 text-xs font-bold rounded-lg bg-black/40 border border-violet-700/50 text-white focus:outline-none focus:border-violet-400"
+                          />
+                          {stats.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveStat(idx)}
+                              className="text-[10px] text-rose-400 hover:text-rose-300 cursor-pointer text-right block w-full mt-1"
+                            >
+                              Kaldır
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Feature Bullets (Checklist) */}
+                  <div className="p-4 rounded-2xl bg-violet-950/30 border border-violet-900/30 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-200">
+                        Detay Sayfası Öne Çıkan Özellikler (Avantaj Listesi)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAddFeature}
+                        className="text-[11px] text-violet-400 font-bold hover:underline cursor-pointer"
+                      >
+                        + Madde Ekle
+                      </button>
+                    </div>
+                    {features.map((feat, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={feat.text}
+                          onChange={(e) => handleFeatureChange(idx, e.target.value)}
+                          placeholder="Örn: Anında Para Çekme & Çevrimsiz Bonus"
+                          className="flex-1 p-2 text-xs rounded-lg bg-[#0d0918] border border-violet-800/40 text-white focus:outline-none focus:border-violet-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFeature(idx)}
+                          className="p-2 text-rose-400 hover:text-rose-300 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Status Toggles in Form */}
               <div className="flex flex-wrap gap-6 pt-2 p-3 bg-violet-950/20 rounded-xl border border-violet-900/30">
@@ -1041,26 +1121,49 @@ export const SponsorsManager: React.FC = () => {
                     onChange={(e) => setVerified(e.target.checked)}
                     className="w-4 h-4 rounded bg-violet-950 text-violet-600 focus:ring-0 cursor-pointer"
                   />
-                  <span>Doğrulanmış Rozeti Göster</span>
+                  <span>Doğrulanmış Lisanslı Sponsor Rozeti</span>
                 </label>
               </div>
 
-              {/* Submit Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-violet-900/30">
-                <button
-                  type="button"
-                  onClick={() => setEditingSponsor(null)}
-                  className="px-5 py-2.5 rounded-xl border border-violet-800 text-slate-300 hover:bg-violet-900/30 text-xs font-bold cursor-pointer"
-                >
-                  İptal
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-6 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-lg shadow-violet-900/50 cursor-pointer transition-all active:scale-95"
-                >
-                  {loading ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
-                </button>
+              {/* Modal Footer Buttons */}
+              <div className="flex items-center justify-between pt-4 border-t border-violet-900/30">
+                <div className="flex gap-2">
+                  {modalTab !== 'general' && (
+                    <button
+                      type="button"
+                      onClick={() => setModalTab(modalTab === 'stats_features' ? 'details' : 'general')}
+                      className="px-3.5 py-2 rounded-xl border border-violet-800 text-slate-300 hover:bg-violet-900/30 text-xs font-bold cursor-pointer"
+                    >
+                      ← Önceki Adım
+                    </button>
+                  )}
+                  {modalTab !== 'stats_features' && (
+                    <button
+                      type="button"
+                      onClick={() => setModalTab(modalTab === 'general' ? 'details' : 'stats_features')}
+                      className="px-3.5 py-2 rounded-xl border border-violet-700 bg-violet-950/60 text-violet-200 hover:bg-violet-900/60 text-xs font-bold cursor-pointer"
+                    >
+                      Sonraki Adım →
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingSponsor(null)}
+                    className="px-4 py-2.5 rounded-xl border border-violet-800 text-slate-300 hover:bg-violet-900/30 text-xs font-bold cursor-pointer"
+                  >
+                    İptal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-black shadow-lg shadow-violet-900/40 cursor-pointer transition-all active:scale-95"
+                  >
+                    {loading ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

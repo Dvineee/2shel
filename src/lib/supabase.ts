@@ -6,28 +6,39 @@ const DEFAULT_URL = 'https://pkxcsjxqxzzfsoamyegk.supabase.co';
 const DEFAULT_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBreGNzanhxeHp6ZnNvYW15ZWdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5ODc0MzIsImV4cCI6MjEwMjU2MzQzMn0.1F4NEkWKVRIWlCN882mdUemOMr5Gm0WK7xWcMknIrC0';
 
 export function getStoredSupabaseConfig() {
-  const envUrl = metaEnv.VITE_SUPABASE_URL || DEFAULT_URL;
-  const envKey = metaEnv.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
+  const envUrl = (metaEnv.VITE_SUPABASE_URL || '').trim();
+  const envKey = (metaEnv.VITE_SUPABASE_ANON_KEY || '').trim();
 
-  const customUrl = typeof localStorage !== 'undefined' ? localStorage.getItem('supabase_custom_url') || '' : '';
-  const customKey = typeof localStorage !== 'undefined' ? localStorage.getItem('supabase_custom_anon_key') || '' : '';
+  const customUrl = typeof localStorage !== 'undefined' ? (localStorage.getItem('supabase_custom_url') || '').trim() : '';
+  const customKey = typeof localStorage !== 'undefined' ? (localStorage.getItem('supabase_custom_anon_key') || '').trim() : '';
 
-  const activeUrl = (customUrl.trim() || envUrl.trim()).trim();
-  const activeKey = (customKey.trim() || envKey.trim()).trim();
+  let activeUrl = customUrl || envUrl || DEFAULT_URL;
+  let activeKey = customKey || envKey || DEFAULT_ANON_KEY;
 
-  const isConfigured = Boolean(
-    activeUrl &&
-    activeKey &&
-    activeUrl !== 'https://your-project.supabase.co' &&
-    !activeUrl.includes('placeholder') &&
-    activeKey !== 'your-anon-key'
-  );
+  if (
+    !activeUrl ||
+    activeUrl.includes('your-project') ||
+    activeUrl.includes('placeholder') ||
+    activeUrl.includes('example.supabase.co') ||
+    !activeUrl.startsWith('http')
+  ) {
+    activeUrl = DEFAULT_URL;
+  }
+
+  if (
+    !activeKey ||
+    activeKey.includes('your-anon-key') ||
+    activeKey.includes('dummy') ||
+    activeKey.length < 20
+  ) {
+    activeKey = DEFAULT_ANON_KEY;
+  }
 
   return {
     url: activeUrl,
     anonKey: activeKey,
-    isConfigured,
-    isCustom: Boolean(customUrl.trim()),
+    isConfigured: true,
+    isCustom: Boolean(customUrl && customUrl !== DEFAULT_URL),
   };
 }
 

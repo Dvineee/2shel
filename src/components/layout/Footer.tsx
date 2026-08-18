@@ -1,10 +1,59 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
-import { Crown, ShieldCheck, Send, Twitter, Instagram, Mail, AlertTriangle } from 'lucide-react';
+import {
+  Crown,
+  Send,
+  MessageSquare,
+  Twitter,
+  Instagram,
+  Youtube,
+  Globe,
+  AlertTriangle,
+  ExternalLink,
+} from 'lucide-react';
 
 export const Footer: React.FC = () => {
-  const { settings } = useData();
+  const { settings, socialLinks } = useData();
+
+  const getSocialIcon = (iconName: string, url?: string) => {
+    const name = (iconName || '').toLowerCase();
+    const linkUrl = (url || '').toLowerCase();
+
+    if (name.includes('twitter') || name.includes('x') || linkUrl.includes('twitter.com') || linkUrl.includes('x.com')) {
+      return <Twitter className="w-3.5 h-3.5 text-sky-400 group-hover:translate-x-0.5 transition-transform shrink-0" />;
+    }
+    if (name.includes('instagram') || linkUrl.includes('instagram.com')) {
+      return <Instagram className="w-3.5 h-3.5 text-pink-400 group-hover:translate-x-0.5 transition-transform shrink-0" />;
+    }
+    if (name.includes('youtube') || linkUrl.includes('youtube.com') || linkUrl.includes('youtu.be')) {
+      return <Youtube className="w-3.5 h-3.5 text-red-400 group-hover:translate-x-0.5 transition-transform shrink-0" />;
+    }
+    if (name.includes('messagesquare') || name.includes('chat') || name.includes('discord') || linkUrl.includes('discord')) {
+      return <MessageSquare className="w-3.5 h-3.5 text-violet-400 group-hover:translate-x-0.5 transition-transform shrink-0" />;
+    }
+    if (name.includes('send') || linkUrl.includes('t.me') || linkUrl.includes('telegram')) {
+      return <Send className="w-3.5 h-3.5 text-[#24A1DE] group-hover:translate-x-0.5 transition-transform shrink-0" />;
+    }
+    return <Globe className="w-3.5 h-3.5 text-amber-400 group-hover:translate-x-0.5 transition-transform shrink-0" />;
+  };
+
+  const defaultLinks = [
+    {
+      id: 'tg-channel',
+      title: 'Telegram Kanalı',
+      url: settings.telegram_channel_url || settings.telegram_url || 'https://t.me/shelbyonline',
+      icon: 'send',
+    },
+    {
+      id: 'tg-chat',
+      title: 'Telegram Sohbet Grubu',
+      url: settings.telegram_chat_url || 'https://t.me/shelbyonline_chat',
+      icon: 'messagesquare',
+    },
+  ];
+
+  const displaySocialLinks = socialLinks && socialLinks.length > 0 ? socialLinks : defaultLinks;
 
   return (
     <footer className="mt-16 border-t border-violet-900/30 bg-[#070510] text-slate-400 text-xs">
@@ -133,49 +182,26 @@ export const Footer: React.FC = () => {
           </ul>
         </div>
 
-        {/* Community & Socials */}
+        {/* Community & Socials (Dynamic Social Links - Clean & Minimal) */}
         <div>
           <h4 className="font-bold text-white uppercase text-xs tracking-wider mb-3">
             Topluluk & İletişim
           </h4>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {settings.telegram_chat_url && (
-              <a
-                href={settings.telegram_chat_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-xl bg-violet-950/60 hover:bg-violet-800 text-violet-300 hover:text-white border border-violet-800/30 transition-colors"
-                title="Telegram VIP Sohbet"
-              >
-                <Send className="w-4 h-4" />
-              </a>
-            )}
-            {settings.twitter_url && (
-              <a
-                href={settings.twitter_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-xl bg-violet-950/60 hover:bg-violet-800 text-violet-300 hover:text-white border border-violet-800/30 transition-colors"
-                title="X / Twitter"
-              >
-                <Twitter className="w-4 h-4" />
-              </a>
-            )}
-            {settings.instagram_url && (
-              <a
-                href={settings.instagram_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-xl bg-violet-950/60 hover:bg-violet-800 text-violet-300 hover:text-white border border-violet-800/30 transition-colors"
-                title="Instagram"
-              >
-                <Instagram className="w-4 h-4" />
-              </a>
-            )}
-          </div>
-          <p className="text-[11px] text-slate-400">
-            Destek: <span className="text-violet-300 font-semibold">{settings.support_email}</span>
-          </p>
+          <ul className="space-y-2.5">
+            {displaySocialLinks.map((link) => (
+              <li key={link.id}>
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors group"
+                >
+                  {getSocialIcon(link.icon, link.url)}
+                  <span className="truncate">{link.title}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 

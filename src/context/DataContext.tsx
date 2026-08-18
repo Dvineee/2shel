@@ -13,6 +13,8 @@ import { db } from '../lib/db';
 import { initialSiteSettings } from '../lib/initialData';
 import { sortSponsors, getSponsorCategory } from '../lib/sponsorUtils';
 
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
 interface DataContextType {
   sponsors: Sponsor[];
   activeSponsors: Sponsor[];
@@ -102,7 +104,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     loadData();
 
-    // Listen to changes across views with debounce
+    // 1. Listen to changes across admin views with debounce
     let debounceTimer: any = null;
     const handler = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -111,9 +113,51 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }, 300);
     };
     window.addEventListener('sponsorhub_db_change', handler);
+
+    // 2. Tab focus & visibility sync (sync immediately when returning to tab)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', handler);
+
+    // 3. Periodic Background Sync (every 12 seconds to keep all users in sync)
+    const syncInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    }, 12000);
+
+    // 4. Supabase Realtime Postgres Changes Subscription
+    let realtimeChannel: any = null;
+    try {
+      if (isSupabaseConfigured && supabase?.channel) {
+        realtimeChannel = supabase
+          .channel('public:portal_realtime_sync')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public' },
+            () => {
+              handler();
+            }
+          )
+          .subscribe();
+      }
+    } catch (err) {
+      console.warn('Realtime subscription not available, using periodic sync:', err);
+    }
+
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener('sponsorhub_db_change', handler);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', handler);
+      clearInterval(syncInterval);
+      if (realtimeChannel && supabase?.removeChannel) {
+        supabase.removeChannel(realtimeChannel);
+      }
     };
   }, [loadData]);
 
