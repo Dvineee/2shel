@@ -24,21 +24,72 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const CURRENT_USER_KEY = 'shelbyonline_current_user_id';
 const LEGACY_USER_KEY = 'sponsorhub_current_user_id';
+const CURRENT_USER_PROFILE_KEY = 'shelbyonline_current_user_profile';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUserState] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [user, setUserState] = useState<Profile | null>(() => {
+    try {
+      const storedProfile = localStorage.getItem(CURRENT_USER_PROFILE_KEY);
+      if (storedProfile) {
+        const parsed = JSON.parse(storedProfile);
+        if (parsed && parsed.id) {
+          const isKajju =
+            parsed.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
+            parsed.username?.toLowerCase().replace('@', '') === 'kajju66';
+          if (isKajju && parsed.role !== 'super_admin') {
+            parsed.role = 'super_admin';
+          }
+          return parsed;
+        }
+      }
+      const storedId = localStorage.getItem(CURRENT_USER_KEY) || localStorage.getItem(LEGACY_USER_KEY);
+      if (storedId) {
+        const cached = db.getCachedProfiles();
+        const matched = cached.find((p) => p.id === storedId);
+        if (matched) {
+          const isKajju =
+            matched.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
+            matched.username?.toLowerCase().replace('@', '') === 'kajju66';
+          if (isKajju && matched.role !== 'super_admin') {
+            matched.role = 'super_admin';
+          }
+          return matched;
+        }
+      }
+    } catch {}
+    return null;
+  });
+
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      const hasStoredUser =
+        localStorage.getItem(CURRENT_USER_PROFILE_KEY) ||
+        localStorage.getItem(CURRENT_USER_KEY) ||
+        localStorage.getItem(LEGACY_USER_KEY);
+      return Boolean(hasStoredUser && !user);
+    } catch {
+      return false;
+    }
+  });
   const isLoadingUserRef = React.useRef(false);
 
   const setUser = (newProfile: Profile | null) => {
     setUserState(newProfile);
     if (newProfile) {
       try {
+        const isKajju =
+          newProfile.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
+          newProfile.username?.toLowerCase().replace('@', '') === 'kajju66';
+        if (isKajju && newProfile.role !== 'super_admin') {
+          newProfile.role = 'super_admin';
+        }
         localStorage.setItem(CURRENT_USER_KEY, newProfile.id);
+        localStorage.setItem(CURRENT_USER_PROFILE_KEY, JSON.stringify(newProfile));
       } catch {}
     } else {
       localStorage.removeItem(CURRENT_USER_KEY);
       localStorage.removeItem(LEGACY_USER_KEY);
+      localStorage.removeItem(CURRENT_USER_PROFILE_KEY);
     }
   };
 

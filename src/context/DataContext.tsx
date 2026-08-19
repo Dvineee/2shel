@@ -10,7 +10,16 @@ import {
   SiteSettings,
 } from '../types';
 import { db } from '../lib/db';
-import { initialSiteSettings } from '../lib/initialData';
+import {
+  initialSiteSettings,
+  initialSponsors,
+  initialHeroSlides,
+  initialBanners,
+  initialSocialLinks,
+  initialWheelRewards,
+  initialGiveaways,
+  initialStoreProducts,
+} from '../lib/initialData';
 import { sortSponsors, getSponsorCategory } from '../lib/sponsorUtils';
 
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -46,15 +55,29 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const cached = db.getCachedData();
-  const [sponsors, setSponsors] = useState<Sponsor[]>(cached.sponsors || []);
-  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(cached.heroSlides || []);
-  const [banners, setBanners] = useState<Banner[]>(cached.banners || []);
-  const [socialLinks, setSocialLinks] = useState<SocialLink[]>(cached.socialLinks || []);
-  const [wheelRewards, setWheelRewards] = useState<WheelReward[]>(cached.wheelRewards || []);
-  const [giveaways, setGiveaways] = useState<Giveaway[]>(cached.giveaways || []);
-  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>(cached.storeProducts || []);
-  const [settings, setSettings] = useState<SiteSettings>(cached.settings || initialSiteSettings);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [sponsors, setSponsors] = useState<Sponsor[]>(() =>
+    cached.sponsors && cached.sponsors.length > 0 ? cached.sponsors : initialSponsors
+  );
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(() =>
+    cached.heroSlides && cached.heroSlides.length > 0 ? cached.heroSlides : initialHeroSlides
+  );
+  const [banners, setBanners] = useState<Banner[]>(() =>
+    cached.banners && cached.banners.length > 0 ? cached.banners : initialBanners
+  );
+  const [socialLinks, setSocialLinks] = useState<SocialLink[]>(() =>
+    cached.socialLinks && cached.socialLinks.length > 0 ? cached.socialLinks : initialSocialLinks
+  );
+  const [wheelRewards, setWheelRewards] = useState<WheelReward[]>(() =>
+    cached.wheelRewards && cached.wheelRewards.length > 0 ? cached.wheelRewards : initialWheelRewards
+  );
+  const [giveaways, setGiveaways] = useState<Giveaway[]>(() =>
+    cached.giveaways && cached.giveaways.length > 0 ? cached.giveaways : initialGiveaways
+  );
+  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>(() =>
+    cached.storeProducts && cached.storeProducts.length > 0 ? cached.storeProducts : initialStoreProducts
+  );
+  const [settings, setSettings] = useState<SiteSettings>(() => cached.settings || initialSiteSettings);
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const isFetchingRef = React.useRef(false);
@@ -66,13 +89,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       const preloaded = await db.preloadAll(forceFresh);
       if (preloaded) {
-        if (preloaded.sponsors) setSponsors(preloaded.sponsors);
-        if (preloaded.heroSlides) setHeroSlides(preloaded.heroSlides);
-        if (preloaded.banners) setBanners(preloaded.banners);
-        if (preloaded.socialLinks) setSocialLinks(preloaded.socialLinks);
-        if (preloaded.wheelRewards) setWheelRewards(preloaded.wheelRewards);
-        if (preloaded.giveaways) setGiveaways(preloaded.giveaways);
-        if (preloaded.storeProducts) setStoreProducts(preloaded.storeProducts);
+        if (preloaded.sponsors && preloaded.sponsors.length > 0) {
+          setSponsors(preloaded.sponsors);
+        }
+        if (preloaded.heroSlides && preloaded.heroSlides.length > 0) {
+          setHeroSlides(preloaded.heroSlides);
+        }
+        if (preloaded.banners && preloaded.banners.length > 0) {
+          setBanners(preloaded.banners);
+        }
+        if (preloaded.socialLinks && preloaded.socialLinks.length > 0) {
+          setSocialLinks(preloaded.socialLinks);
+        }
+        if (preloaded.wheelRewards && preloaded.wheelRewards.length > 0) {
+          setWheelRewards(preloaded.wheelRewards);
+        }
+        if (preloaded.giveaways !== undefined) {
+          setGiveaways(preloaded.giveaways);
+        }
+        if (preloaded.storeProducts !== undefined) {
+          setStoreProducts(preloaded.storeProducts);
+        }
         if (preloaded.settings) {
           setSettings(preloaded.settings);
         }
@@ -87,14 +124,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           db.getStoreProducts(),
           db.getSettings(),
         ]);
-        setSponsors(s);
-        setHeroSlides(h);
-        setBanners(b);
-        setSocialLinks(soc);
-        setWheelRewards(w);
-        setGiveaways(g);
-        setStoreProducts(p);
-        setSettings(set);
+        if (s && s.length > 0) setSponsors(s);
+        if (h && h.length > 0) setHeroSlides(h);
+        if (b && b.length > 0) setBanners(b);
+        if (soc && soc.length > 0) setSocialLinks(soc);
+        if (w && w.length > 0) setWheelRewards(w);
+        if (g !== undefined) setGiveaways(g);
+        if (p !== undefined) setStoreProducts(p);
+        if (set) setSettings(set);
       }
     } catch (err) {
       console.error('Failed to load portal data from Supabase:', err);

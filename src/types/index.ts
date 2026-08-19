@@ -135,7 +135,7 @@ export interface SocialLink {
   sort_order: number;
 }
 
-export type WheelRewardType = 'coin' | 'special' | 'retry' | 'bonus';
+export type WheelRewardType = 'coin' | 'special' | 'retry' | 'bonus' | 'code';
 
 export interface WheelReward {
   id: string;

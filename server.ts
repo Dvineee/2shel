@@ -514,23 +514,167 @@ async function handleTelegramUpdate(update: any) {
 
 // ======================== API ROUTES ========================
 
-// In-memory cache for portal data to eliminate database saturation & ensure sub-10ms response times
+// In-memory cache for portal data to eliminate database saturation & ensure sub-5ms response times
 let cachedPortalData: any = null;
 let cachedPortalDataTime = 0;
-const PORTAL_CACHE_TTL_MS = 2000; // 2 seconds cache for high responsiveness
+const PORTAL_CACHE_TTL_MS = 20000; // 20 seconds cache for high responsiveness, instantly invalidated on writes
 
 const serverCustomSponsors = new Map<string, any>();
 const serverDeletedSponsorIds = new Set<string>();
 
 const serverCustomGiveaways = new Map<string, any>();
 const serverDeletedGiveawayIds = new Set<string>();
+const serverCustomGiveawayEntries = new Map<string, any>();
 
 const serverCustomOrders = new Map<string, any>();
+
+async function fetchPortalDataFromSupabase() {
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  };
+
+  const fetchWithTimeout = async (url: string) => {
+    try {
+      let response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(6000),
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      if (url.includes('&order=')) {
+        const simpleUrl = url.split('&order=')[0];
+        response = await fetch(simpleUrl, {
+          headers,
+          signal: AbortSignal.timeout(5000),
+        });
+        if (response.ok) {
+          return await response.json();
+        }
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  };
+
+  const [
+    settings,
+    sponsors,
+    hero_slides,
+    banners,
+    social_links,
+    wheel_rewards,
+    giveaways,
+    store_products,
+    giveaway_entries,
+  ] = await Promise.all([
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/site_settings?select=*`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/sponsors?select=*&order=sort_order.asc`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/hero_slides?select=*&order=sort_order.asc`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/banners?select=*&order=sort_order.asc`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/social_links?select=*&order=sort_order.asc`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/wheel_rewards?select=*&order=sort_order.asc`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaways?select=*&order=created_at.desc`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/store_products?select=*&order=sort_order.asc`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaway_entries?select=*`),
+  ]);
+
+  // Merge Supabase sponsors, remove deleted ids
+  const remoteSponsors = Array.isArray(sponsors) ? sponsors : [];
+  const finalSponsorsMap = new Map<string, any>();
+
+  for (const sp of remoteSponsors) {
+    const spId = String(sp.id);
+    if (serverDeletedSponsorIds.has(spId)) continue;
+    if (serverCustomSponsors.has(spId)) {
+      finalSponsorsMap.set(spId, { ...sp, ...serverCustomSponsors.get(spId) });
+    } else {
+      finalSponsorsMap.set(spId, sp);
+    }
+  }
+
+  for (const [id, customSp] of serverCustomSponsors.entries()) {
+    if (serverDeletedSponsorIds.has(id)) continue;
+    if (!finalSponsorsMap.has(id)) {
+      finalSponsorsMap.set(id, customSp);
+    }
+  }
+
+  const finalSponsorsList = Array.from(finalSponsorsMap.values());
+
+  // Merge Supabase entries with server in-memory entries
+  const remoteEntries = Array.isArray(giveaway_entries) ? giveaway_entries : [];
+  const finalEntriesMap = new Map<string, any>();
+
+  for (const entry of remoteEntries) {
+    const eKey = entry.id || `${entry.giveaway_id}_${entry.user_id}`;
+    finalEntriesMap.set(eKey, entry);
+  }
+
+  for (const [key, customEntry] of serverCustomGiveawayEntries.entries()) {
+    const eKey = customEntry.id || `${customEntry.giveaway_id}_${customEntry.user_id}`;
+    if (!finalEntriesMap.has(eKey)) {
+      finalEntriesMap.set(eKey, customEntry);
+    }
+  }
+
+  const entriesList = Array.from(finalEntriesMap.values());
+
+  const remoteGiveaways = Array.isArray(giveaways) ? giveaways : [];
+  const finalGiveawaysMap = new Map<string, any>();
+
+  for (const g of remoteGiveaways) {
+    const gId = String(g.id);
+    if (serverDeletedGiveawayIds.has(gId)) continue;
+    if (serverCustomGiveaways.has(gId)) {
+      finalGiveawaysMap.set(gId, { ...g, ...serverCustomGiveaways.get(gId) });
+    } else {
+      finalGiveawaysMap.set(gId, g);
+    }
+  }
+
+  for (const [id, customG] of serverCustomGiveaways.entries()) {
+    if (serverDeletedGiveawayIds.has(id)) continue;
+    if (!finalGiveawaysMap.has(id)) {
+      finalGiveawaysMap.set(id, customG);
+    }
+  }
+
+  const formattedGiveaways = Array.from(finalGiveawaysMap.values()).map((g: any) => {
+    const matchCount = entriesList.filter((e: any) => e.giveaway_id === g.id).length;
+    const customCount = Number(serverCustomGiveaways.get(g.id)?.entries_count) || 0;
+    return {
+      ...g,
+      entries_count: Math.max(Number(g.entries_count) || 0, matchCount, customCount),
+    };
+  });
+
+  const resultData = {
+    settings,
+    sponsors: finalSponsorsList,
+    hero_slides,
+    banners,
+    social_links,
+    wheel_rewards,
+    giveaways: formattedGiveaways,
+    store_products,
+    giveaway_entries: entriesList,
+  };
+
+  cachedPortalData = resultData;
+  cachedPortalDataTime = Date.now();
+  return resultData;
+}
 
 // Portal Data Endpoint (Direct server-side Supabase query with caching & strict timeout)
 app.get('/api/portal/data', async (req, res) => {
   const now = Date.now();
   const isFreshRequested = req.query.fresh === 'true' || req.query.t;
+
+  res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+
   if (!isFreshRequested && cachedPortalData && now - cachedPortalDataTime < PORTAL_CACHE_TTL_MS) {
     return res.json({
       status: 'ok',
@@ -540,126 +684,7 @@ app.get('/api/portal/data', async (req, res) => {
   }
 
   try {
-    const headers = {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    };
-
-    const fetchWithTimeout = async (url: string) => {
-      try {
-        let response = await fetch(url, {
-          headers,
-          signal: AbortSignal.timeout(6000),
-        });
-        if (response.ok) {
-          return await response.json();
-        }
-        // If order query failed, try simple select=* without order parameters
-        if (url.includes('&order=')) {
-          const simpleUrl = url.split('&order=')[0];
-          response = await fetch(simpleUrl, {
-            headers,
-            signal: AbortSignal.timeout(4000),
-          });
-          if (response.ok) {
-            return await response.json();
-          }
-        }
-        return [];
-      } catch {
-        return [];
-      }
-    };
-
-    const [
-      settings,
-      sponsors,
-      hero_slides,
-      banners,
-      social_links,
-      wheel_rewards,
-      giveaways,
-      store_products,
-      giveaway_entries,
-    ] = await Promise.all([
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/site_settings?select=*`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/sponsors?select=*&order=sort_order.asc`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/hero_slides?select=*&order=sort_order.asc`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/banners?select=*&order=sort_order.asc`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/social_links?select=*&order=sort_order.asc`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/wheel_rewards?select=*&order=sort_order.asc`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaways?select=*&order=created_at.desc`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/store_products?select=*&order=sort_order.asc`),
-      fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaway_entries?select=*`),
-    ]);
-
-    // Merge Supabase sponsors, remove deleted ids
-    const remoteSponsors = Array.isArray(sponsors) ? sponsors : [];
-    const finalSponsorsMap = new Map<string, any>();
-
-    for (const sp of remoteSponsors) {
-      const spId = String(sp.id);
-      if (serverDeletedSponsorIds.has(spId)) continue;
-      if (serverCustomSponsors.has(spId)) {
-        finalSponsorsMap.set(spId, { ...sp, ...serverCustomSponsors.get(spId) });
-      } else {
-        finalSponsorsMap.set(spId, sp);
-      }
-    }
-
-    for (const [id, customSp] of serverCustomSponsors.entries()) {
-      if (serverDeletedSponsorIds.has(id)) continue;
-      if (!finalSponsorsMap.has(id)) {
-        finalSponsorsMap.set(id, customSp);
-      }
-    }
-
-    const finalSponsorsList = Array.from(finalSponsorsMap.values());
-
-    const entriesList = Array.isArray(giveaway_entries) ? giveaway_entries : [];
-    const remoteGiveaways = Array.isArray(giveaways) ? giveaways : [];
-    const finalGiveawaysMap = new Map<string, any>();
-
-    for (const g of remoteGiveaways) {
-      const gId = String(g.id);
-      if (serverDeletedGiveawayIds.has(gId)) continue;
-      if (serverCustomGiveaways.has(gId)) {
-        finalGiveawaysMap.set(gId, { ...g, ...serverCustomGiveaways.get(gId) });
-      } else {
-        finalGiveawaysMap.set(gId, g);
-      }
-    }
-
-    for (const [id, customG] of serverCustomGiveaways.entries()) {
-      if (serverDeletedGiveawayIds.has(id)) continue;
-      if (!finalGiveawaysMap.has(id)) {
-        finalGiveawaysMap.set(id, customG);
-      }
-    }
-
-    const formattedGiveaways = Array.from(finalGiveawaysMap.values()).map((g: any) => {
-      const matchCount = entriesList.filter((e: any) => e.giveaway_id === g.id).length;
-      return {
-        ...g,
-        entries_count: Math.max(Number(g.entries_count) || 0, matchCount),
-      };
-    });
-
-    const resultData = {
-      settings,
-      sponsors: finalSponsorsList,
-      hero_slides,
-      banners,
-      social_links,
-      wheel_rewards,
-      giveaways: formattedGiveaways,
-      store_products,
-      giveaway_entries: entriesList,
-    };
-
-    cachedPortalData = resultData;
-    cachedPortalDataTime = Date.now();
-
+    const resultData = await fetchPortalDataFromSupabase();
     res.json({
       status: 'ok',
       source: 'supabase',
@@ -1219,6 +1244,19 @@ app.post('/api/giveaways/join', async (req, res) => {
     const entryId = `entry_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const nowIso = new Date().toISOString();
 
+    // Check duplicate in server in-memory storage first
+    const memoryDuplicate = Array.from(serverCustomGiveawayEntries.values()).some(
+      (e) =>
+        e.giveaway_id === giveaway_id &&
+        (e.user_id === user_id ||
+          (cleanUsername.toLowerCase() !== 'kullanıcı' &&
+            e.username?.toLowerCase() === cleanUsername.toLowerCase()))
+    );
+
+    if (memoryDuplicate) {
+      return res.json({ success: false, already_joined: true, message: 'Bu çekilişe zaten katıldınız!' });
+    }
+
     const headers = {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
@@ -1305,7 +1343,18 @@ app.post('/api/giveaways/join', async (req, res) => {
       console.warn('Auto-ensure giveaway row error:', gErr);
     }
 
-    // Step 4: Insert entry into giveaway_entries in Supabase
+    // Step 4: Record entry in server in-memory cache
+    const newEntryObj = {
+      id: entryId,
+      giveaway_id,
+      user_id,
+      username: cleanUsername,
+      created_at: nowIso,
+    };
+    serverCustomGiveawayEntries.set(entryId, newEntryObj);
+    serverCustomGiveawayEntries.set(`${giveaway_id}_${user_id}`, newEntryObj);
+
+    // Step 5: Insert entry into giveaway_entries in Supabase
     let entrySavedToDb = false;
     try {
       const insRes = await fetch(`${SUPABASE_URL}/rest/v1/giveaway_entries`, {
@@ -1344,13 +1393,27 @@ app.post('/api/giveaways/join', async (req, res) => {
       console.warn('Supabase entry insert warning:', e);
     }
 
-    // Step 5: Update entries_count in Supabase and memory
+    // Step 6: Count total matching entries and update serverCustomGiveaways & Supabase
+    const matchingEntriesCount = Array.from(serverCustomGiveawayEntries.values()).filter(
+      (e) => e.giveaway_id === giveaway_id
+    ).length;
+
+    const inMemoryG = serverCustomGiveaways.get(giveaway_id) || {};
+    const updatedCount = Math.max(Number(inMemoryG.entries_count) || 0, matchingEntriesCount, 1);
+    serverCustomGiveaways.set(giveaway_id, {
+      ...inMemoryG,
+      id: giveaway_id,
+      entries_count: updatedCount,
+    });
+
+    // Try patching Supabase giveaways entries_count
     try {
-      const inMemoryG = serverCustomGiveaways.get(giveaway_id);
-      if (inMemoryG) {
-        inMemoryG.entries_count = (inMemoryG.entries_count || 0) + 1;
-        serverCustomGiveaways.set(giveaway_id, inMemoryG);
-      }
+      await fetch(`${SUPABASE_URL}/rest/v1/giveaways?id=eq.${encodeURIComponent(giveaway_id)}`, {
+        method: 'PATCH',
+        headers: { ...headers, Prefer: 'return=minimal' },
+        body: JSON.stringify({ entries_count: updatedCount }),
+        signal: AbortSignal.timeout(3000),
+      });
     } catch {
       // ignore
     }
@@ -1363,11 +1426,58 @@ app.post('/api/giveaways/join', async (req, res) => {
       success: true,
       message: '🎉 Çekilişe başarıyla katıldınız! Bol şans.',
       saved_to_db: entrySavedToDb,
-      entry: { id: entryId, giveaway_id, user_id, username: cleanUsername, created_at: nowIso },
+      entries_count: updatedCount,
+      entry: newEntryObj,
     });
   } catch (err: any) {
     console.error('Error joining giveaway:', err);
     return res.status(500).json({ success: false, message: 'Çekilişe katılırken sunucu hatası oluştu.' });
+  }
+});
+
+// Get Giveaway Entries Endpoint (Server-Side authoritative list)
+app.get('/api/giveaways/entries', async (req, res) => {
+  try {
+    const { giveaway_id } = req.query;
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    };
+
+    let url = `${SUPABASE_URL}/rest/v1/giveaway_entries?select=*`;
+    if (giveaway_id) {
+      url += `&giveaway_id=eq.${encodeURIComponent(String(giveaway_id))}`;
+    }
+
+    let remoteList: any[] = [];
+    try {
+      const response = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
+      if (response.ok) {
+        remoteList = await response.json();
+      }
+    } catch {
+      // ignore
+    }
+
+    const mergedMap = new Map<string, any>();
+    if (Array.isArray(remoteList)) {
+      remoteList.forEach((e) => mergedMap.set(e.id || `${e.giveaway_id}_${e.user_id}`, e));
+    }
+
+    for (const [key, customEntry] of serverCustomGiveawayEntries.entries()) {
+      if (!giveaway_id || customEntry.giveaway_id === giveaway_id) {
+        const eKey = customEntry.id || `${customEntry.giveaway_id}_${customEntry.user_id}`;
+        if (!mergedMap.has(eKey)) {
+          mergedMap.set(eKey, customEntry);
+        }
+      }
+    }
+
+    const allEntries = Array.from(mergedMap.values());
+    return res.json({ success: true, count: allEntries.length, entries: allEntries });
+  } catch (err: any) {
+    console.error('Error fetching giveaway entries:', err);
+    return res.status(500).json({ success: false, message: 'Katılımlar alınamadı' });
   }
 });
 
@@ -1582,7 +1692,7 @@ app.post('/api/store/orders/update-status', async (req, res) => {
               {
                 method: 'PATCH',
                 headers,
-                body: JSON.stringify({ coins: newCoins, updated_at: nowIso }),
+                body: JSON.stringify({ coins: newCoins }),
                 signal: AbortSignal.timeout(4000),
               }
             );
@@ -1593,15 +1703,33 @@ app.post('/api/store/orders/update-status', async (req, res) => {
       }
     }
 
-    // Update Supabase store_orders
+    // Extract and update delivery_info with admin_note if needed
+    let existingDeliveryInfo: any = {};
+    if (existingOrder) {
+      if (typeof existingOrder.delivery_info === 'object' && existingOrder.delivery_info !== null) {
+        existingDeliveryInfo = { ...existingOrder.delivery_info };
+      } else if (typeof existingOrder.delivery_info === 'string') {
+        try {
+          existingDeliveryInfo = JSON.parse(existingOrder.delivery_info);
+        } catch {
+          existingDeliveryInfo = { note: existingOrder.delivery_info };
+        }
+      }
+    }
+    if (admin_note !== undefined) {
+      existingDeliveryInfo.admin_note = admin_note;
+    }
+
+    // Update Supabase store_orders (only use columns that exist: status, delivery_info)
     try {
+      const patchBody: any = { status };
+      if (Object.keys(existingDeliveryInfo).length > 0) {
+        patchBody.delivery_info = JSON.stringify(existingDeliveryInfo);
+      }
       await fetch(`${SUPABASE_URL}/rest/v1/store_orders?id=eq.${encodeURIComponent(strOrderId)}`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({
-          status,
-          updated_at: nowIso,
-        }),
+        body: JSON.stringify(patchBody),
         signal: AbortSignal.timeout(4000),
       });
     } catch (dbErr) {
@@ -1910,28 +2038,16 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', botUsername: botInfo.username, activeCodes: activeAuthCodes.size });
 });
 
-// Global Error Handler for API routes (catches payload too large, JSON syntax errors, etc.)
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err?.type === 'entity.too.large' || err?.status === 413) {
-    console.warn('⚠️ PayloadTooLargeError caught on route:', req.path);
-    return res.status(413).json({
-      success: false,
-      error: 'PayloadTooLargeError',
-      message: 'Gönderilen dosya veya veri boyutu çok büyük. Lütfen daha küçük bir görsel seçiniz.',
-    });
-  }
-  if (err) {
-    console.error('Express server error:', err);
-    return res.status(err.status || 500).json({
-      success: false,
-      error: err.name || 'InternalServerError',
-      message: err.message || 'Sunucu hatası oluştu.',
-    });
-  }
-  next();
+// Fallback 404 for unmatched API requests (returns JSON error, never HTML)
+app.all('/api/*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'NotFound',
+    message: `API rotası bulunamadı: ${req.method} ${req.path}`,
+  });
 });
 
-// ======================== SERVER BOOTSTRAP ========================
+// ======================== SERVER BOOTSTRAP & SPA FALLBACK ========================
 
 async function startServer() {
   // Initialize Telegram Bot & start polling
@@ -1939,17 +2055,18 @@ async function startServer() {
     pollTelegramUpdates();
   });
 
-  // Vite middleware in dev or static files in production
+  // Vite middleware in development or static files in production
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'spa',
+      appType: 'custom',
     });
     app.use(vite.middlewares);
 
-    // Explicit fallback for client-side routing on page reload (e.g. /admin/sponsors)
-    app.use('*', async (req, res, next) => {
-      if (req.originalUrl.startsWith('/api')) {
+    // Universal SPA fallback for all frontend GET requests
+    app.get('*', async (req, res, next) => {
+      // Never intercept API routes
+      if (req.path.startsWith('/api/')) {
         return next();
       }
       try {
@@ -1965,14 +2082,48 @@ async function startServer() {
     });
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    const indexPath = path.join(distPath, 'index.html');
+
+    // Serve static assets from dist folder
+    app.use(express.static(distPath, { index: false }));
+
+    // Universal SPA fallback for all frontend GET requests
+    app.get('*', (req, res, next) => {
+      // Never intercept API routes
+      if (req.path.startsWith('/api/')) {
+        return next();
+      }
+      res.sendFile(indexPath);
     });
   }
 
+  // Global Error Handler for API routes & server (catches payload too large, JSON syntax errors, etc.)
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err?.type === 'entity.too.large' || err?.status === 413) {
+      console.warn('⚠️ PayloadTooLargeError caught on route:', req.path);
+      return res.status(413).json({
+        success: false,
+        error: 'PayloadTooLargeError',
+        message: 'Gönderilen dosya veya veri boyutu çok büyük. Lütfen daha küçük bir görsel seçiniz.',
+      });
+    }
+    if (err) {
+      console.error('Express server error:', err);
+      return res.status(err.status || 500).json({
+        success: false,
+        error: err.name || 'InternalServerError',
+        message: err.message || 'Sunucu hatası oluştu.',
+      });
+    }
+    next();
+  });
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 ShelbyOnline Server running on port ${PORT}`);
+    // Non-blocking warmup of portal data cache to make first request instantaneous
+    fetchPortalDataFromSupabase()
+      .then(() => console.log('⚡ Portal data cache warmed up successfully.'))
+      .catch((e) => console.warn('Warmup error (non-fatal):', e?.message));
   });
 }
 

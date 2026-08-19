@@ -59,7 +59,7 @@ const STORAGE_KEYS = {
   DELETED_SPONSORS: 'sponsorhub_deleted_sponsors_v1',
 };
 
-// 100% In-Memory Cache (Zero LocalStorage persistence for application data)
+// Fast Two-Tier (In-Memory + LocalStorage) Cache for 0ms initial load & instant rendering
 const memoryCache = new Map<string, any>();
 
 // Local event broadcaster for instant UI synchronization
@@ -71,39 +71,37 @@ function broadcastChange(key?: string) {
   }
 }
 
-// Purge all legacy LocalStorage data so browser storage remains completely clean
-function purgeAllLegacyLocalStorage() {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    const keys = Object.keys(localStorage);
-    for (const k of keys) {
-      if (k.startsWith('sponsorhub_') || k.startsWith('shelbyonline_current_user_profile')) {
-        localStorage.removeItem(k);
-      }
-    }
-  } catch {
-    // ignore
-  }
-}
-
-// Run cleanup immediately on load
-if (typeof window !== 'undefined') {
-  try {
-    purgeAllLegacyLocalStorage();
-  } catch {}
-}
-
 function getStored<T>(key: string, defaultValue: T): T {
   if (memoryCache.has(key)) {
     return memoryCache.get(key) as T;
+  }
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed !== undefined && parsed !== null) {
+          memoryCache.set(key, parsed);
+          return parsed as T;
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
   memoryCache.set(key, defaultValue);
   return defaultValue;
 }
 
 function setStored<T>(key: string, value: T, silent = false): void {
-  // Pure in-memory state - no LocalStorage write
   memoryCache.set(key, value);
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // ignore quota exceeded errors
+    }
+  }
 
   if (!silent) {
     broadcastChange(key);
@@ -217,7 +215,7 @@ export const db = {
     }
 
     let mappedSponsors: Sponsor[] = [];
-    if (Array.isArray(sponsors)) {
+    if (Array.isArray(sponsors) && sponsors.length > 0) {
       mappedSponsors = sponsors.map((d: any) => {
         const cat = getSponsorCategory(d);
         const idStr = String(d.id);
@@ -324,8 +322,8 @@ export const db = {
       mappedSponsors = sortSponsors(mappedSponsors);
       setStored(STORAGE_KEYS.SPONSORS, mappedSponsors, true);
     } else {
-      const cached = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
-      mappedSponsors = cached || [];
+      const cached = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+      mappedSponsors = (cached && cached.length > 0) ? sortSponsors(cached) : initialSponsors;
     }
 
     let mappedHeroSlides: HeroSlide[] = [];
@@ -377,11 +375,8 @@ export const db = {
       });
       setStored(STORAGE_KEYS.BANNERS, mappedBanners, true);
     } else {
-      mappedBanners = getStored<Banner[]>(STORAGE_KEYS.BANNERS, initialBanners);
-      if (!mappedBanners || mappedBanners.length === 0) {
-        mappedBanners = initialBanners;
-      }
-      setStored(STORAGE_KEYS.BANNERS, mappedBanners, true);
+      const cached = getStored<Banner[]>(STORAGE_KEYS.BANNERS, initialBanners);
+      mappedBanners = (cached && cached.length > 0) ? cached : initialBanners;
     }
 
     let mappedSocials: SocialLink[] = [];
@@ -423,10 +418,14 @@ export const db = {
     const remoteEntries = Array.isArray(giveaway_entries)
       ? (giveaway_entries as GiveawayEntry[])
       : [];
-    if (remoteEntries.length > 0) {
-      setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, remoteEntries, true);
+    const localEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+    const mergedEntriesMap = new Map<string, GiveawayEntry>();
+    localEntries.forEach((e) => mergedEntriesMap.set(e.id || `${e.giveaway_id}_${e.user_id}`, e));
+    remoteEntries.forEach((e) => mergedEntriesMap.set(e.id || `${e.giveaway_id}_${e.user_id}`, e));
+    const allStoredEntries = Array.from(mergedEntriesMap.values());
+    if (allStoredEntries.length > 0) {
+      setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, allStoredEntries, true);
     }
-    const allStoredEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
 
     let mappedGiveaways: Giveaway[] = [];
     if (Array.isArray(giveaways) && giveaways.length > 0) {
@@ -453,12 +452,9 @@ export const db = {
         };
       });
       setStored(STORAGE_KEYS.GIVEAWAYS, mappedGiveaways, true);
-    } else if (Array.isArray(giveaways) && giveaways.length === 0) {
-      mappedGiveaways = [];
-      setStored(STORAGE_KEYS.GIVEAWAYS, [], true);
     } else {
-      const cached = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []);
-      mappedGiveaways = cached || [];
+      const cached = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, initialGiveaways);
+      mappedGiveaways = (cached && cached.length > 0) ? cached : initialGiveaways;
     }
 
     let mappedProducts: StoreProduct[] = [];
@@ -506,7 +502,7 @@ export const db = {
     // 1. Try server-side fast endpoint if available
     try {
       const controller = new AbortController();
-      const timeoutMs = forceFresh ? 4000 : 2500;
+      const timeoutMs = forceFresh ? 7000 : 5000;
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       const url = forceFresh ? `/api/portal/data?fresh=true&t=${Date.now()}` : '/api/portal/data';
       const res = await fetch(url, {
@@ -528,6 +524,17 @@ export const db = {
     // 2. Direct Supabase Client Query (Works on static hosting, cPanel, Hostinger, Vercel, Netlify, etc.)
     if (isSupabaseReady()) {
       try {
+        const safeQuery = async (queryPromise: any) => {
+          try {
+            const res: any = await withTimeout(queryPromise, 6000);
+            const data = res?.data;
+            const error = res?.error;
+            return !error && Array.isArray(data) ? data : (data ? [data] : []);
+          } catch {
+            return [];
+          }
+        };
+
         const [
           settingsRes,
           sponsorsRes,
@@ -539,27 +546,27 @@ export const db = {
           storeRes,
           entriesRes,
         ] = await Promise.all([
-          supabase.from('site_settings').select('*'),
-          supabase.from('sponsors').select('*').order('sort_order', { ascending: true }),
-          supabase.from('hero_slides').select('*').order('sort_order', { ascending: true }),
-          supabase.from('banners').select('*').order('sort_order', { ascending: true }),
-          supabase.from('social_links').select('*').order('sort_order', { ascending: true }),
-          supabase.from('wheel_rewards').select('*').order('sort_order', { ascending: true }),
-          supabase.from('giveaways').select('*').order('created_at', { ascending: false }),
-          supabase.from('store_products').select('*').order('sort_order', { ascending: true }),
-          supabase.from('giveaway_entries').select('*').order('created_at', { ascending: false }).limit(200),
+          safeQuery(supabase.from('site_settings').select('*')),
+          safeQuery(supabase.from('sponsors').select('*')),
+          safeQuery(supabase.from('hero_slides').select('*')),
+          safeQuery(supabase.from('banners').select('*')),
+          safeQuery(supabase.from('social_links').select('*')),
+          safeQuery(supabase.from('wheel_rewards').select('*')),
+          safeQuery(supabase.from('giveaways').select('*')),
+          safeQuery(supabase.from('store_products').select('*')),
+          safeQuery(supabase.from('giveaway_entries').select('*').limit(200)),
         ]);
 
         const rawData = {
-          settings: settingsRes.data || [],
-          sponsors: sponsorsRes.data || [],
-          hero_slides: heroRes.data || [],
-          banners: bannersRes.data || [],
-          social_links: socialRes.data || [],
-          wheel_rewards: rewardsRes.data || [],
-          giveaways: giveawaysRes.data || [],
-          store_products: storeRes.data || [],
-          giveaway_entries: entriesRes.data || [],
+          settings: settingsRes,
+          sponsors: sponsorsRes,
+          hero_slides: heroRes,
+          banners: bannersRes,
+          social_links: socialRes,
+          wheel_rewards: rewardsRes,
+          giveaways: giveawaysRes,
+          store_products: storeRes,
+          giveaway_entries: entriesRes,
         };
 
         return this.parseAndCachePortalData(rawData);
@@ -1986,10 +1993,15 @@ export const db = {
     }
 
     const localGiveaways = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []);
-    return localGiveaways.map((g) => ({
-      ...g,
-      active: g.is_completed ? true : (g.active !== false),
-    }));
+    const allStoredEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+    return localGiveaways.map((g) => {
+      const matchCount = allStoredEntries.filter((e) => e.giveaway_id === g.id).length;
+      return {
+        ...g,
+        entries_count: Math.max(Number(g.entries_count) || 0, matchCount),
+        active: g.is_completed ? true : (g.active !== false),
+      };
+    });
   },
 
   async createGiveaway(giveaway: Partial<Giveaway>): Promise<Giveaway> {
@@ -2164,6 +2176,17 @@ export const db = {
   },
 
   async getEntriesByGiveawayId(giveawayId: string): Promise<GiveawayEntry[]> {
+    try {
+      const res = await fetch(`/api/giveaways/entries?giveaway_id=${encodeURIComponent(giveawayId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.entries)) {
+          return json.entries;
+        }
+      }
+    } catch {
+      // fallback
+    }
     const allEntries = await this.getGiveawayEntries();
     return allEntries.filter((e) => e.giveaway_id === giveawayId);
   },
@@ -2289,6 +2312,34 @@ export const db = {
 
   // --- Giveaway Entries (Database Authoritative) ---
   async getGiveawayEntries(): Promise<GiveawayEntry[]> {
+    const localEntries = getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+    const mergedMap = new Map<string, GiveawayEntry>();
+    localEntries.forEach((e) => mergedMap.set(e.id || `${e.giveaway_id}_${e.user_id}`, e));
+
+    try {
+      const res = await fetch('/api/giveaways/entries');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.entries)) {
+          json.entries.forEach((e: any) => {
+            const entryObj: GiveawayEntry = {
+              id: e.id,
+              giveaway_id: e.giveaway_id,
+              user_id: e.user_id,
+              username: e.username || 'Kullanıcı',
+              created_at: e.created_at || new Date().toISOString(),
+            };
+            mergedMap.set(entryObj.id || `${entryObj.giveaway_id}_${entryObj.user_id}`, entryObj);
+          });
+          const merged = Array.from(mergedMap.values());
+          setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, merged, true);
+          return merged;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     if (isSupabaseReady()) {
       try {
         const { data, error } = await withTimeout(
@@ -2299,14 +2350,25 @@ export const db = {
           8000
         );
         if (!error && Array.isArray(data)) {
-          setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, data, true);
-          return data as GiveawayEntry[];
+          data.forEach((d: any) => {
+            const entry: GiveawayEntry = {
+              id: d.id,
+              giveaway_id: d.giveaway_id,
+              user_id: d.user_id,
+              username: d.username || d.telegram_username || 'Kullanıcı',
+              created_at: d.created_at || new Date().toISOString(),
+            };
+            mergedMap.set(entry.id || `${entry.giveaway_id}_${entry.user_id}`, entry);
+          });
+          const merged = Array.from(mergedMap.values());
+          setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, merged, true);
+          return merged;
         }
       } catch (err) {
         console.warn('Supabase getGiveawayEntries error:', err);
       }
     }
-    return getStored<GiveawayEntry[]>(STORAGE_KEYS.GIVEAWAY_ENTRIES, []);
+    return Array.from(mergedMap.values());
   },
 
   async enterGiveaway(giveawayId: string, userId: string, username: string): Promise<{ success: boolean; message: string }> {
@@ -2347,6 +2409,15 @@ export const db = {
     entries.push(newEntry);
     setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, entries);
 
+    // Immediately update entries_count in STORAGE_KEYS.GIVEAWAYS locally
+    const giveaways = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []);
+    const gIdx = giveaways.findIndex((g) => g.id === giveawayId);
+    if (gIdx !== -1) {
+      const matchCount = entries.filter((e) => e.giveaway_id === giveawayId).length;
+      giveaways[gIdx].entries_count = Math.max(Number(giveaways[gIdx].entries_count) || 0, matchCount);
+      setStored(STORAGE_KEYS.GIVEAWAYS, giveaways);
+    }
+
     // Try server-side join endpoint for instant Supabase sync & duplicate check
     try {
       const res = await fetch('/api/giveaways/join', {
@@ -2366,15 +2437,17 @@ export const db = {
         if (json.expired) {
           return { success: false, message: 'Bu çekilişin katılım süresi dolmuştur. Katılım sağlanamaz.' };
         }
-        if (json.message) {
-          await invalidateServerCache();
-          window.dispatchEvent(
-            new CustomEvent('sponsorhub_db_change', {
-              detail: { key: 'sponsorhub_giveaways_v1' },
-            })
-          );
-          return { success: true, message: json.message };
+        if (json.entries_count !== undefined && gIdx !== -1) {
+          giveaways[gIdx].entries_count = Math.max(Number(giveaways[gIdx].entries_count) || 0, Number(json.entries_count));
+          setStored(STORAGE_KEYS.GIVEAWAYS, giveaways);
         }
+        await invalidateServerCache();
+        window.dispatchEvent(
+          new CustomEvent('sponsorhub_db_change', {
+            detail: { key: 'sponsorhub_giveaways_v1' },
+          })
+        );
+        return { success: true, message: json.message || '🎉 Çekilişe başarıyla katıldınız! Bol şans.' };
       } else {
         const errJson = await res.json().catch(() => ({}));
         if (errJson.message) {
@@ -2780,7 +2853,6 @@ export const db = {
       try {
         await supabase.from('store_orders').update({
           status,
-          updated_at: new Date().toISOString(),
         }).eq('id', orderId);
       } catch (err) {
         console.warn('Supabase updateStoreOrderStatus error:', err);
@@ -2805,6 +2877,10 @@ export const db = {
   },
 
   // --- Profiles & Auth (Database Authoritative) ---
+  getCachedProfiles(): Profile[] {
+    return getStored<Profile[]>(STORAGE_KEYS.PROFILES, []);
+  },
+
   async getProfiles(): Promise<Profile[]> {
     if (isSupabaseReady()) {
       try {

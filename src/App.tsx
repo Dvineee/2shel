@@ -10,7 +10,7 @@ import { Toaster } from 'sonner';
 import { Home } from './pages/Home';
 import { SponsorsPage } from './pages/Sponsors';
 import { SponsorDetailPage } from './pages/SponsorDetail';
-import { WheelPage, RewardWheelPage } from './pages/Wheel';
+import { WheelPage } from './pages/Wheel';
 import { GiveawaysPage } from './pages/Giveaways';
 import { LeaderboardPage } from './pages/Leaderboard';
 import { StorePage } from './pages/Store';
@@ -21,6 +21,7 @@ import { ContactPage } from './pages/Contact';
 import { LoginPage } from './pages/Login';
 import { RegisterPage } from './pages/Register';
 import { ProfilePage } from './pages/Profile';
+import { NotFoundPage } from './pages/NotFound';
 
 // Admin Pages
 import { AdminLayout } from './pages/admin/AdminLayout';
@@ -135,6 +136,7 @@ export function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
 
             {/* Admin Layout */}
@@ -149,10 +151,8 @@ export function App() {
               <Route path="store" element={<StoreManager />} />
               <Route path="settings" element={<SettingsManager />} />
               <Route path="logs" element={<LogsManager />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
-
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </DataProvider>
       </AuthProvider>

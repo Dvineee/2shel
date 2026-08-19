@@ -90,7 +90,7 @@ export const SponsorGrid: React.FC<SponsorGridProps> = ({
     setSearchParams(nextParams);
   };
 
-  if (loading) {
+  if (loading && filteredSponsors.length === 0) {
     return (
       <section className="my-5 sm:my-6 space-y-6">
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3.5 md:gap-4">
