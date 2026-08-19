@@ -86,8 +86,148 @@ export function clearSupabaseCredentials() {
 
 export const isSupabaseConfigured = getStoredSupabaseConfig().isConfigured;
 
+export const SUPABASE_RECREATE_SPONSORS_SQL = `-- =======================================================
+-- SPONSOR TABLOSUNU SIFIRDAN TEMİZ KURMA SQL KODU
+-- (Supabase Dashboard > SQL Editor alanına yapıştırıp RUN'a basınız)
+-- =======================================================
+
+-- 1. Varsa eski sponsors tablosunu güvenle kaldır
+DROP TABLE IF EXISTS public.sponsors CASCADE;
+
+-- 2. Sponsors tablosunu tüm modern kolonlarıyla ve otomatik ID ile oluştur
+CREATE TABLE public.sponsors (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  logo_url TEXT,
+  banner_url TEXT,
+  bonus_text TEXT,
+  rating NUMERIC DEFAULT 5.0,
+  review_count INT DEFAULT 0,
+  website_url TEXT,
+  direct_url TEXT,
+  button_text TEXT DEFAULT 'SİTEYE GİT & KAZAN',
+  short_description TEXT,
+  short_desc TEXT,
+  description TEXT,
+  full_review TEXT,
+  category TEXT DEFAULT 'main',
+  featured BOOLEAN DEFAULT FALSE,
+  is_vip BOOLEAN DEFAULT FALSE,
+  is_popular BOOLEAN DEFAULT FALSE,
+  verified BOOLEAN DEFAULT TRUE,
+  active BOOLEAN DEFAULT TRUE,
+  is_active BOOLEAN DEFAULT TRUE,
+  has_detail_page BOOLEAN DEFAULT TRUE,
+  sort_order INT DEFAULT 0,
+  bonus_code TEXT,
+  bonus_headline TEXT,
+  badge_text TEXT,
+  min_deposit TEXT DEFAULT '50 ₺',
+  withdrawal_speed TEXT DEFAULT '3 - 15 Dakika',
+  license TEXT DEFAULT 'Curacao eGaming',
+  rtp_rate TEXT DEFAULT '%97.8',
+  online_players TEXT DEFAULT '1420',
+  live_support TEXT DEFAULT '7/24 Türkçe Canlı Destek',
+  payment_methods JSONB DEFAULT '["Papara", "Havale / EFT", "Kripto (USDT)", "Payfix", "Kredi Kartı", "Mefete"]'::jsonb,
+  stats JSONB DEFAULT '[{"id": "stat-1", "label": "İlk Yatırım", "value": "%100", "sort_order": 1}, {"id": "stat-2", "label": "Deneme Bonusu", "value": "250 TL", "sort_order": 2}, {"id": "stat-3", "label": "Kayıp Bonusu", "value": "%20", "sort_order": 3}]'::jsonb,
+  features JSONB DEFAULT '[{"id": "feat-1", "text": "Anında Çekim İmkanı", "sort_order": 1}, {"id": "feat-2", "text": "7/24 Türkçe Canlı Destek", "sort_order": 2}, {"id": "feat-3", "text": "Lisanslı & Güvenilir Altyapı", "sort_order": 3}]'::jsonb,
+  pros JSONB DEFAULT '["Anında Para Çekme Garantisi", "Yüksek Bahis Oranları & Zengin Slotlar", "7/24 Kesintisiz Canlı Destek"]'::jsonb,
+  cons JSONB DEFAULT '["Hafta sonu yoğunluğunda canlı destek birkaç dakika gecikebilir"]'::jsonb,
+  faq JSONB DEFAULT '[]'::jsonb,
+  clicks_count INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. RLS (Row Level Security) Açma ve Anonim Okuma/Yazma İzni Verme
+ALTER TABLE public.sponsors ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public Full Access Sponsors" ON public.sponsors;
+CREATE POLICY "Public Full Access Sponsors" ON public.sponsors FOR ALL USING (true) WITH CHECK (true);
+`;
+
+export const SUPABASE_RECREATE_GIVEAWAYS_SQL = `-- =======================================================
+-- ÇEKİLİŞLER VE KATILIMLAR TABLOSUNU SIFIRDAN TEMİZ KURMA SQL KODU
+-- (Supabase Dashboard > SQL Editor alanına yapıştırıp RUN'a basınız)
+-- =======================================================
+
+-- 1. Varsa eski tabloları güvenle kaldır
+DROP TABLE IF EXISTS public.giveaway_entries CASCADE;
+DROP TABLE IF EXISTS public.giveaways CASCADE;
+DROP TABLE IF EXISTS public.giveaway_templates CASCADE;
+
+-- 2. Giveaways Tablosu
+CREATE TABLE public.giveaways (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  title TEXT NOT NULL,
+  description TEXT,
+  image_url TEXT,
+  sponsor_id TEXT,
+  prize TEXT NOT NULL,
+  prize_details TEXT,
+  total_winners INT DEFAULT 1,
+  winner_count INT DEFAULT 1,
+  entry_fee_coins INT DEFAULT 0,
+  min_level INT DEFAULT 1,
+  end_date TIMESTAMPTZ NOT NULL,
+  end_at TIMESTAMPTZ,
+  start_at TIMESTAMPTZ DEFAULT NOW(),
+  winners JSONB DEFAULT '[]'::jsonb,
+  is_active BOOLEAN DEFAULT TRUE,
+  active BOOLEAN DEFAULT TRUE,
+  is_featured BOOLEAN DEFAULT FALSE,
+  is_completed BOOLEAN DEFAULT FALSE,
+  winner_username TEXT,
+  winner_id TEXT,
+  winner_announced_at TIMESTAMPTZ,
+  winner_note TEXT,
+  entries_count INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Giveaway Entries Tablosu (Katılımlar)
+CREATE TABLE public.giveaway_entries (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  giveaway_id TEXT NOT NULL REFERENCES public.giveaways(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  telegram_username TEXT,
+  coins_spent INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Giveaway Templates Tablosu (Şablonlar)
+CREATE TABLE public.giveaway_templates (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name TEXT NOT NULL,
+  title TEXT NOT NULL,
+  prize_details TEXT NOT NULL,
+  image_url TEXT,
+  description TEXT,
+  duration_days INT DEFAULT 7,
+  badge_color TEXT DEFAULT 'violet',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. RLS Açma & Anonim / Herkese Açık İzinler
+ALTER TABLE public.giveaways ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.giveaway_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.giveaway_templates ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public Full Access Giveaways" ON public.giveaways;
+CREATE POLICY "Public Full Access Giveaways" ON public.giveaways FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Full Access Giveaway Entries" ON public.giveaway_entries;
+CREATE POLICY "Public Full Access Giveaway Entries" ON public.giveaway_entries FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Full Access Giveaway Templates" ON public.giveaway_templates;
+CREATE POLICY "Public Full Access Giveaway Templates" ON public.giveaway_templates FOR ALL USING (true) WITH CHECK (true);
+`;
+
 export const SUPABASE_SQL_SCHEMA = `-- ==========================================
--- SHELBYONLINE / SPONSORHUB SUPABASE SQL SCHEMA
+-- SHELBYONLINE / SPONSORHUB SUPABASE FULL SQL SCHEMA
 -- Bu kodu Supabase Dashboard > SQL Editor alanına yapıştırıp "RUN" butonuna basınız.
 -- ==========================================
 
@@ -98,27 +238,140 @@ CREATE TABLE IF NOT EXISTS public.site_settings (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Sponsorlar
+-- 2. Sponsorlar Tablosu (Tam Kapsamlı Şema)
 CREATE TABLE IF NOT EXISTS public.sponsors (
-  id TEXT PRIMARY KEY,
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name TEXT NOT NULL,
-  slug TEXT UNIQUE,
+  slug TEXT UNIQUE NOT NULL,
   logo_url TEXT,
   banner_url TEXT,
   bonus_text TEXT,
   rating NUMERIC DEFAULT 5.0,
   review_count INT DEFAULT 0,
+  website_url TEXT,
   direct_url TEXT,
+  button_text TEXT DEFAULT 'SİTEYE GİT & KAZAN',
+  short_description TEXT,
   short_desc TEXT,
+  description TEXT,
   full_review TEXT,
-  features JSONB DEFAULT '[]'::jsonb,
-  tags JSONB DEFAULT '[]'::jsonb,
-  is_active BOOLEAN DEFAULT TRUE,
+  category TEXT DEFAULT 'main',
+  featured BOOLEAN DEFAULT FALSE,
   is_vip BOOLEAN DEFAULT FALSE,
   is_popular BOOLEAN DEFAULT FALSE,
+  verified BOOLEAN DEFAULT TRUE,
+  active BOOLEAN DEFAULT TRUE,
+  is_active BOOLEAN DEFAULT TRUE,
+  has_detail_page BOOLEAN DEFAULT TRUE,
   sort_order INT DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  bonus_code TEXT,
+  bonus_headline TEXT,
+  badge_text TEXT,
+  min_deposit TEXT,
+  withdrawal_speed TEXT,
+  license TEXT,
+  rtp_rate TEXT,
+  online_players TEXT,
+  live_support TEXT,
+  payment_methods JSONB DEFAULT '[]'::jsonb,
+  stats JSONB DEFAULT '[]'::jsonb,
+  features JSONB DEFAULT '[]'::jsonb,
+  pros JSONB DEFAULT '[]'::jsonb,
+  cons JSONB DEFAULT '[]'::jsonb,
+  faq JSONB DEFAULT '[]'::jsonb,
+  clicks_count INT DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Sponsorlar tablosuna eksik tüm sütunları güvenle ekleme (Hata vermez)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='website_url') THEN
+    ALTER TABLE public.sponsors ADD COLUMN website_url TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='button_text') THEN
+    ALTER TABLE public.sponsors ADD COLUMN button_text TEXT DEFAULT 'SİTEYE GİT & KAZAN';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='short_description') THEN
+    ALTER TABLE public.sponsors ADD COLUMN short_description TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='description') THEN
+    ALTER TABLE public.sponsors ADD COLUMN description TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='category') THEN
+    ALTER TABLE public.sponsors ADD COLUMN category TEXT DEFAULT 'main';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='featured') THEN
+    ALTER TABLE public.sponsors ADD COLUMN featured BOOLEAN DEFAULT FALSE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='verified') THEN
+    ALTER TABLE public.sponsors ADD COLUMN verified BOOLEAN DEFAULT TRUE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='active') THEN
+    ALTER TABLE public.sponsors ADD COLUMN active BOOLEAN DEFAULT TRUE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='is_active') THEN
+    ALTER TABLE public.sponsors ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='is_vip') THEN
+    ALTER TABLE public.sponsors ADD COLUMN is_vip BOOLEAN DEFAULT FALSE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='has_detail_page') THEN
+    ALTER TABLE public.sponsors ADD COLUMN has_detail_page BOOLEAN DEFAULT TRUE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='bonus_code') THEN
+    ALTER TABLE public.sponsors ADD COLUMN bonus_code TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='bonus_headline') THEN
+    ALTER TABLE public.sponsors ADD COLUMN bonus_headline TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='badge_text') THEN
+    ALTER TABLE public.sponsors ADD COLUMN badge_text TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='min_deposit') THEN
+    ALTER TABLE public.sponsors ADD COLUMN min_deposit TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='withdrawal_speed') THEN
+    ALTER TABLE public.sponsors ADD COLUMN withdrawal_speed TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='license') THEN
+    ALTER TABLE public.sponsors ADD COLUMN license TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='rtp_rate') THEN
+    ALTER TABLE public.sponsors ADD COLUMN rtp_rate TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='online_players') THEN
+    ALTER TABLE public.sponsors ADD COLUMN online_players TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='live_support') THEN
+    ALTER TABLE public.sponsors ADD COLUMN live_support TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='payment_methods') THEN
+    ALTER TABLE public.sponsors ADD COLUMN payment_methods JSONB DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='stats') THEN
+    ALTER TABLE public.sponsors ADD COLUMN stats JSONB DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='features') THEN
+    ALTER TABLE public.sponsors ADD COLUMN features JSONB DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='pros') THEN
+    ALTER TABLE public.sponsors ADD COLUMN pros JSONB DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='cons') THEN
+    ALTER TABLE public.sponsors ADD COLUMN cons JSONB DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='faq') THEN
+    ALTER TABLE public.sponsors ADD COLUMN faq JSONB DEFAULT '[]'::jsonb;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='clicks_count') THEN
+    ALTER TABLE public.sponsors ADD COLUMN clicks_count INT DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sponsors' AND column_name='updated_at') THEN
+    ALTER TABLE public.sponsors ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();
+  END IF;
+END $$;
 
 -- 3. Sponsor İstatistikleri
 CREATE TABLE IF NOT EXISTS public.sponsor_stats (
@@ -223,7 +476,7 @@ CREATE TABLE IF NOT EXISTS public.giveaways (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Çekiliş tablosuna eksik sütunları güvenle ekleme (Varsa hata vermez)
+-- Çekiliş tablosuna eksik sütunları güvenle ekleme
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='giveaways' AND column_name='is_completed') THEN
@@ -325,7 +578,7 @@ CREATE TABLE IF NOT EXISTS public.admin_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 15. Telegram Giriş Güvenlik Kodları (5 Dakikalık Tek Kullanımlık Kodlar)
+-- 15. Telegram Giriş Güvenlik Kodları
 CREATE TABLE IF NOT EXISTS public.telegram_auth_codes (
   code TEXT PRIMARY KEY,
   telegram_id TEXT NOT NULL,
@@ -338,7 +591,7 @@ CREATE TABLE IF NOT EXISTS public.telegram_auth_codes (
   is_used BOOLEAN DEFAULT FALSE
 );
 
--- 16. 7 Günlük Giriş Serisi & Kullanıcı Seri Takibi
+-- 16. 7 Günlük Giriş Serisi
 CREATE TABLE IF NOT EXISTS public.user_streaks (
   user_id TEXT PRIMARY KEY,
   current_streak INT DEFAULT 0,
@@ -370,7 +623,7 @@ ALTER TABLE public.user_streaks ENABLE ROW LEVEL SECURITY;
 DO $$ 
 DECLARE 
   tbl TEXT;
-BEGIN
+BEGIN 
   FOR tbl IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS "Public Full Access" ON public.%I', tbl);

@@ -26,15 +26,46 @@ import {
   UserCheck,
   HelpCircle,
   UserPlus,
+  Database,
+  Terminal,
+  Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
 import confetti from 'canvas-confetti';
 import { formatDate } from '../../lib/utils';
 import { ImageUploadField } from '../../components/common/ImageUploadField';
+import { SUPABASE_RECREATE_GIVEAWAYS_SQL } from '../../lib/supabase';
 
 export const GiveawaysManager: React.FC = () => {
   const { giveaways, refreshAll } = useData();
+
+  // Supabase SQL Modal & Test DB State
+  const [showSqlModal, setShowSqlModal] = useState(false);
+  const [sqlCopied, setSqlCopied] = useState(false);
+  const [testingDb, setTestingDb] = useState(false);
+  const [dbTestResult, setDbTestResult] = useState<any>(null);
+  const [showTestModal, setShowTestModal] = useState(false);
+
+  const handleTestDatabase = async () => {
+    soundEngine.playClick();
+    setTestingDb(true);
+    try {
+      const res = await fetch('/api/giveaways/test-connection');
+      const data = await res.json();
+      setDbTestResult(data);
+      setShowTestModal(true);
+      if (data.giveaways?.status === 'ok' && data.giveaway_entries?.status === 'ok') {
+        toast.success('Supabase çekiliş ve katılım tabloları aktif!');
+      } else {
+        toast.error('Supabase çekiliş tablosunda eksiklik tespit edildi.');
+      }
+    } catch (e: any) {
+      toast.error('Test isteği başarısız: ' + (e?.message || 'Bilinmeyen hata'));
+    } finally {
+      setTestingDb(false);
+    }
+  };
 
   // Custom Confirm Modal State (Solves iframe window.confirm block)
   const [confirmModal, setConfirmModal] = useState<{
@@ -612,6 +643,27 @@ export const GiveawaysManager: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
+          {/* DB Connection Test Button */}
+          <button
+            onClick={handleTestDatabase}
+            disabled={testingDb}
+            className="px-3.5 py-2.5 rounded-xl bg-sky-950/60 hover:bg-sky-900/60 text-sky-300 border border-sky-600/40 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm disabled:opacity-50"
+            title="Supabase Çekiliş ve Katılım Tabloları Bağlantı Testi"
+          >
+            <Database className={`w-4 h-4 text-sky-400 ${testingDb ? 'animate-spin' : ''}`} />
+            <span>{testingDb ? 'Test Ediliyor...' : 'DB Testi'}</span>
+          </button>
+
+          {/* SQL Setup Modal Button */}
+          <button
+            onClick={() => setShowSqlModal(true)}
+            className="px-3.5 py-2.5 rounded-xl bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
+            title="Supabase SQL Kodunu Görüntüle & Kopyala"
+          >
+            <Terminal className="w-4 h-4 text-amber-400" />
+            <span>SQL Tablo Kodu</span>
+          </button>
+
           <button
             onClick={() => setIsTemplateManagerOpen(true)}
             className="px-3.5 py-2.5 rounded-xl bg-violet-900/40 hover:bg-violet-800/60 text-violet-300 border border-violet-700/40 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-sm"
@@ -1579,6 +1631,156 @@ export const GiveawaysManager: React.FC = () => {
                 className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-violet-950 font-black text-xs shadow-md"
               >
                 Şablonu Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPABASE SQL RECREATE MODAL */}
+      {showSqlModal && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="max-w-3xl w-full rounded-3xl bg-[#140c28] border-2 border-amber-500/50 p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-violet-900/30 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                  <Terminal className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">
+                    Supabase Çekilişler & Katılımlar Tablosu SQL Kodu
+                  </h3>
+                  <p className="text-xs text-amber-300/80">
+                    Supabase Dashboard &gt; SQL Editor alanına yapıştırıp "RUN" butonuna basınız.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSqlModal(false)}
+                className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-hidden flex flex-col bg-[#0a0516] rounded-2xl border border-violet-900/40 p-3">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-violet-900/30 text-xs text-slate-400">
+                <span>SQL Kodu (Tablo oluşturma, yabancı anahtar ve RLS izinleri):</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(SUPABASE_RECREATE_GIVEAWAYS_SQL);
+                    setSqlCopied(true);
+                    toast.success('SQL kodu panoya kopyalandı!');
+                    setTimeout(() => setSqlCopied(false), 2500);
+                  }}
+                  className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-violet-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition-all active:scale-95"
+                >
+                  {sqlCopied ? <Check className="w-3.5 h-3.5 text-violet-950" /> : <Copy className="w-3.5 h-3.5 text-violet-950" />}
+                  <span>{sqlCopied ? 'Kopyalandı!' : 'Kodu Kopyala'}</span>
+                </button>
+              </div>
+              <pre className="flex-1 overflow-auto text-[11px] font-mono text-emerald-300/90 leading-relaxed p-2 select-all bg-black/40 rounded-xl">
+                {SUPABASE_RECREATE_GIVEAWAYS_SQL}
+              </pre>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-violet-900/30">
+              <span className="text-[11px] text-slate-400">
+                💡 Bu kod <code className="text-amber-300">giveaways</code>, <code className="text-amber-300">giveaway_entries</code> ve <code className="text-amber-300">giveaway_templates</code> tablolarını oluşturur ve anonim katılım izinlerini açar.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSqlModal(false)}
+                className="px-4 py-2 rounded-xl bg-violet-900/50 hover:bg-violet-800 text-white font-bold text-xs cursor-pointer"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DB TEST RESULT MODAL */}
+      {showTestModal && dbTestResult && (
+        <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="max-w-lg w-full rounded-3xl bg-[#140c28] border-2 border-sky-500/50 p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-violet-900/30 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Çekiliş Veritabanı Test Sonucu</h3>
+                  <p className="text-xs text-sky-300/80">Supabase REST API ve tablo durumu</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTestModal(false)}
+                className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-2xl bg-[#090514] border border-violet-900/40 flex items-center justify-between">
+                <span className="text-slate-400">Genel Durum:</span>
+                <span className={`px-2.5 py-1 rounded-full font-black text-xs ${dbTestResult.success ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}`}>
+                  {dbTestResult.success ? '✓ BAĞLANTI BAŞARILI' : '✗ HATA TESPİT EDİLDİ'}
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-[#090514] border border-violet-900/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white">1. Çekilişler Tablosu (giveaways):</span>
+                  <span className={`font-bold ${dbTestResult.giveaways?.status === 'ok' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {dbTestResult.giveaways?.status === 'ok' ? `Aktif (${dbTestResult.giveaways.count} Kayıt)` : 'Erişilemedi'}
+                  </span>
+                </div>
+                {dbTestResult.giveaways?.error && (
+                  <p className="text-[11px] text-rose-300 bg-rose-950/40 p-2 rounded-lg border border-rose-800/40 font-mono">
+                    {dbTestResult.giveaways.error}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-violet-900/30">
+                  <span className="font-bold text-white">2. Katılımlar Tablosu (giveaway_entries):</span>
+                  <span className={`font-bold ${dbTestResult.giveaway_entries?.status === 'ok' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {dbTestResult.giveaway_entries?.status === 'ok' ? `Aktif (${dbTestResult.giveaway_entries.count} Katılım)` : 'Erişilemedi'}
+                  </span>
+                </div>
+                {dbTestResult.giveaway_entries?.error && (
+                  <p className="text-[11px] text-rose-300 bg-rose-950/40 p-2 rounded-lg border border-rose-800/40 font-mono">
+                    {dbTestResult.giveaway_entries.error}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-300 p-3 rounded-2xl bg-sky-950/30 border border-sky-800/30">
+                {dbTestResult.message}
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-violet-900/30">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTestModal(false);
+                  setShowSqlModal(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-violet-950 font-bold text-xs cursor-pointer shadow-md"
+              >
+                SQL Kodunu Aç
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTestModal(false)}
+                className="px-4 py-2 rounded-xl bg-violet-900/50 hover:bg-violet-800 text-white font-bold text-xs cursor-pointer"
+              >
+                Tamam
               </button>
             </div>
           </div>

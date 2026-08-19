@@ -16,7 +16,7 @@ interface SponsorGridProps {
 export const SponsorGrid: React.FC<SponsorGridProps> = ({
   sponsors,
   loading = false,
-  title = 'GÜVENİLİR SPONSORLAR & BONUSLAR',
+  title = 'GÜVENİLİR SPONSORLAR',
   showFilters = false,
 }) => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,13 +69,10 @@ export const SponsorGrid: React.FC<SponsorGridProps> = ({
     return { main, vip, trusted };
   }, [filteredSponsors]);
 
-  const hasMultipleCategories =
+  const isCategorizedView =
     !searchQuery.trim() &&
     selectedCategory === 'all' &&
-    (categorized.main.length > 0 ? 1 : 0) +
-      (categorized.vip.length > 0 ? 1 : 0) +
-      (categorized.trusted.length > 0 ? 1 : 0) >
-      1;
+    (categorized.main.length > 0 || categorized.vip.length > 0 || categorized.trusted.length > 0);
 
   const clearSearch = () => {
     const nextParams = new URLSearchParams(searchParams);
@@ -192,9 +189,13 @@ export const SponsorGrid: React.FC<SponsorGridProps> = ({
           <div className="w-10 h-10 rounded-full bg-violet-500/10 text-violet-400 flex items-center justify-center mx-auto mb-2">
             <Gift className="w-5 h-5" />
           </div>
-          <h3 className="text-sm font-bold text-white">Eşleşen Sponsor Bulunamadı</h3>
+          <h3 className="text-sm font-bold text-white">
+            {searchQuery || selectedCategory !== 'all' ? 'Eşleşen Sponsor Bulunamadı' : 'Henüz Sponsor Eklenmedi'}
+          </h3>
           <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-            Arama kriterlerinize uygun aktif sponsor bulunamadı. Filtreleri temizleyerek tüm listeyi görebilirsiniz.
+            {searchQuery || selectedCategory !== 'all'
+              ? 'Arama kriterlerinize uygun aktif sponsor bulunamadı. Filtreleri temizleyerek tüm listeyi görebilirsiniz.'
+              : 'Veritabanında henüz kayıtlı sponsor bulunmuyor. Yönetici panelinden yeni sponsorlar ekleyebilirsiniz.'}
           </p>
           {(searchQuery || selectedCategory !== 'all') && (
             <button
@@ -208,7 +209,7 @@ export const SponsorGrid: React.FC<SponsorGridProps> = ({
             </button>
           )}
         </div>
-      ) : hasMultipleCategories ? (
+      ) : isCategorizedView ? (
         <>
           {/* 1. ANA SPONSORLAR */}
           {categorized.main.length > 0 && (
@@ -275,7 +276,13 @@ export const SponsorGrid: React.FC<SponsorGridProps> = ({
               <Star className="w-3 h-3 sm:w-4 sm:h-4" />
             </div>
             <h2 className="text-white font-black text-xs sm:text-base md:text-lg uppercase tracking-wider">
-              {searchQuery ? `ARAMA SONUÇLARI (${filteredSponsors.length})` : title}
+              {searchQuery
+                ? `ARAMA SONUÇLARI (${filteredSponsors.length})`
+                : selectedCategory === 'main'
+                ? 'ANA SPONSORLAR'
+                : selectedCategory === 'vip'
+                ? 'VIP SPONSORLAR'
+                : 'GÜVENİLİR SPONSORLAR'}
             </h2>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3.5 md:gap-4">

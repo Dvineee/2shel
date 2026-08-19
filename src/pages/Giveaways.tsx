@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/db';
 import { formatTimeLeft, formatDate } from '../lib/utils';
-import { Gift, Clock, Users, Trophy, CheckCircle, Sparkles, Crown, Award, X, ShieldCheck, Calendar } from 'lucide-react';
+import { Gift, Clock, Users, Trophy, CheckCircle, Sparkles, Crown, Award, X, ShieldCheck, Calendar, LogIn, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 import { soundEngine } from '../lib/sound';
@@ -16,6 +17,7 @@ export const GiveawaysPage: React.FC = () => {
   const [joinedIds, setJoinedIds] = useState<string[]>([]);
   const [selectedGiveawayForResults, setSelectedGiveawayForResults] = useState<Giveaway | null>(null);
   const [filterTab, setFilterTab] = useState<'all' | 'active' | 'completed'>('all');
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   const fireCelebrationConfetti = () => {
     try {
@@ -109,7 +111,7 @@ export const GiveawaysPage: React.FC = () => {
   const handleJoin = async (giveawayId: string) => {
     if (!user) {
       soundEngine.playClick();
-      toast.error('Çekilişe katılabilmek için lütfen giriş yapınız.');
+      setShowLoginPrompt(true);
       return;
     }
 
@@ -575,6 +577,57 @@ export const GiveawaysPage: React.FC = () => {
               >
                 Pencereyi Kapat
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LOGIN REQUIRED PROMPT MODAL */}
+      {showLoginPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="max-w-md w-full rounded-3xl bg-[#130b26] border-2 border-rose-500/40 p-6 shadow-2xl space-y-4 relative">
+            <button
+              onClick={() => setShowLoginPrompt(false)}
+              className="absolute top-4 right-4 p-1 rounded-xl bg-white/5 text-slate-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <Gift className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">Çekilişe Katılmak İçin Giriş Yapın</h3>
+                <p className="text-xs text-slate-400">Çekilişlere katılmak ve ödül kazanmak için hesabınızla oturum açmanız gerekmektedir.</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#090514] border border-violet-900/40 text-xs text-slate-300 space-y-1.5">
+              <p className="flex items-center gap-2 text-emerald-300 font-semibold">
+                <CheckCircle className="w-4 h-4" />
+                <span>Tek tıkla Telegram ile anında giriş yapabilirsiniz.</span>
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                Hesabınız yoksa Telegram ile otomatik olarak saniyeler içinde profiliniz oluşturulur.
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center gap-3">
+              <button
+                onClick={() => setShowLoginPrompt(false)}
+                className="w-1/2 py-2.5 rounded-xl border border-violet-800/60 text-slate-300 text-xs font-semibold hover:text-white"
+              >
+                Daha Sonra
+              </button>
+              <Link
+                to="/login"
+                onClick={() => soundEngine.playClick()}
+                className="w-1/2 py-2.5 rounded-xl bg-gradient-to-r from-[#24A1DE] to-blue-600 hover:from-[#1e88e5] hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-sky-900/40 text-center"
+              >
+                <Send className="w-3.5 h-3.5 fill-current" />
+                <span>Giriş Yap / Kaydol</span>
+              </Link>
             </div>
           </div>
         </div>

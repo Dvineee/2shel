@@ -67,14 +67,18 @@ export const SPONSOR_CATEGORY_LIST: SponsorCategoryInfo[] = [
 export function getSponsorCategory(sponsor: Partial<Sponsor> | null | undefined): SponsorCategory {
   if (!sponsor) return 'trusted';
   const cat = String(sponsor.category || '').toLowerCase().trim();
-  if (cat === 'main' || cat.includes('ana') || cat.includes('main')) {
+  if (cat === 'main' || cat === 'ana' || cat.includes('ana') || cat.includes('main')) {
     return 'main';
   }
-  if (cat === 'vip' || sponsor.featured) {
+  if (cat === 'vip') {
     return 'vip';
   }
   if (cat === 'trusted' || cat.includes('guven') || cat.includes('güven')) {
     return 'trusted';
+  }
+  // Only check featured/is_vip if category is not explicitly set
+  if (!cat && (sponsor.featured || sponsor.is_vip)) {
+    return 'vip';
   }
   return 'trusted';
 }

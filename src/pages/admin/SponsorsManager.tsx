@@ -7,6 +7,7 @@ import {
   getSponsorCategory,
   sortSponsors,
 } from '../../lib/sponsorUtils';
+import { SUPABASE_SQL_SCHEMA, SUPABASE_RECREATE_SPONSORS_SQL } from '../../lib/supabase';
 import {
   ShieldCheck,
   Plus,
@@ -41,13 +42,15 @@ import {
   ToggleLeft,
   ToggleRight,
   Eye,
+  Activity,
+  CheckCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
 import { ImageUploadField } from '../../components/common/ImageUploadField';
 
 export const SponsorsManager: React.FC = () => {
-  const { sponsors, refreshAll } = useData();
+  const { sponsors, refreshAll, refreshSponsorsOnly, updateSponsorsDirectly } = useData();
 
   const [editingSponsor, setEditingSponsor] = useState<Partial<Sponsor> | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -57,7 +60,31 @@ export const SponsorsManager: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<'all' | SponsorCategory | 'active' | 'passive'>('all');
   const [modalTab, setModalTab] = useState<'general' | 'details' | 'stats_features'>('general');
   const [showSqlModal, setShowSqlModal] = useState(false);
+  const [sqlViewMode, setSqlViewMode] = useState<'clean' | 'migration' | 'full'>('clean');
   const [sqlCopied, setSqlCopied] = useState(false);
+  const [testingDb, setTestingDb] = useState(false);
+  const [dbTestResult, setDbTestResult] = useState<any>(null);
+  const [showTestModal, setShowTestModal] = useState(false);
+
+  const handleTestDatabase = async () => {
+    soundEngine.playClick();
+    setTestingDb(true);
+    try {
+      const res = await fetch('/api/sponsors/test-connection');
+      const data = await res.json();
+      setDbTestResult(data);
+      setShowTestModal(true);
+      if (data.write_test?.status === 'success' && data.read_test?.status === 'success') {
+        toast.success('Veritabanı bağlantısı ve yazma testi başarılı!');
+      } else {
+        toast.error('Veritabanı testinde hata tespit edildi.');
+      }
+    } catch (e: any) {
+      toast.error('Test isteği başarısız: ' + (e?.message || 'Bilinmeyen hata'));
+    } finally {
+      setTestingDb(false);
+    }
+  };
 
   // Form State
   const [name, setName] = useState('');
@@ -165,7 +192,7 @@ export const SponsorsManager: React.FC = () => {
     setButtonText(sponsor.button_text || 'SİTEYE GİT & KAZAN');
     setShortDesc(sponsor.short_description || sponsor.bonus_text || '');
     setDescription(sponsor.description || '');
-    setFeatured(sponsor.featured || cat === 'vip');
+    setFeatured(cat === 'vip');
     setVerified(sponsor.verified !== false);
     setActive(sponsor.active !== false);
     setHasDetailPage(sponsor.has_detail_page !== false);
@@ -282,7 +309,8 @@ export const SponsorsManager: React.FC = () => {
       button_text: buttonText || 'SİTEYE GİT & KAZAN',
       short_description: shortDesc,
       description,
-      featured: category === 'vip' || featured,
+      featured: category === 'vip',
+      is_vip: category === 'vip',
       verified,
       active,
       has_detail_page: hasDetailPage,
@@ -306,14 +334,15 @@ export const SponsorsManager: React.FC = () => {
 
     try {
       if (isNew || !editingSponsor?.id) {
-        await db.createSponsor(sponsorData as any);
+        const saved = await db.createSponsor(sponsorData as any);
+        updateSponsorsDirectly([...sponsors, saved]);
         toast.success(`"${name}" sponsoru başarıyla eklendi!`);
       } else {
-        await db.updateSponsor(editingSponsor.id, sponsorData);
+        const saved = await db.updateSponsor(editingSponsor.id, sponsorData);
+        updateSponsorsDirectly(sponsors.map((s) => (s.id === editingSponsor.id ? saved : s)));
         toast.success(`"${name}" sponsorunun tüm detayları güncellendi!`);
       }
       setEditingSponsor(null);
-      await refreshAll();
     } catch (err: any) {
       console.error('Sponsor save error:', err);
       toast.error('Kayıt sırasında bir hata oluştu: ' + (err?.message || ''));
@@ -332,9 +361,9 @@ export const SponsorsManager: React.FC = () => {
         sort_order: (sponsor.sort_order || sponsors.length) + 1,
       };
       delete (duplicateData as any).id;
-      await db.createSponsor(duplicateData as any);
+      const created = await db.createSponsor(duplicateData as any);
+      updateSponsorsDirectly([...sponsors, created]);
       toast.success(`"${sponsor.name}" başarıyla çoğaltıldı!`);
-      await refreshAll();
     } catch (err: any) {
       toast.error('Çoğaltma sırasında hata: ' + (err?.message || ''));
     }
@@ -344,11 +373,12 @@ export const SponsorsManager: React.FC = () => {
     soundEngine.playClick();
     if (window.confirm(`"${sponsorName}" sponsorunu silmek istediğinizden emin misiniz?`)) {
       try {
+        updateSponsorsDirectly(sponsors.filter((s) => s.id !== id));
         await db.deleteSponsor(id);
         toast.success(`"${sponsorName}" sponsoru silindi`);
-        await refreshAll();
       } catch {
         toast.error('Silme işlemi başarısız');
+        await refreshSponsorsOnly();
       }
     }
   };
@@ -356,25 +386,38 @@ export const SponsorsManager: React.FC = () => {
   const handleToggleActive = async (sponsor: Sponsor) => {
     soundEngine.playClick();
     const newActive = !sponsor.active;
+    updateSponsorsDirectly(
+      sponsors.map((s) => (s.id === sponsor.id ? { ...s, active: newActive } : s))
+    );
     await db.toggleSponsorActive(sponsor.id, newActive);
     toast.success(
       `${sponsor.name} ${newActive ? 'AKTİF yapıldı (Yayında)' : 'PASİFE alındı (Gizlendi)'}!`
     );
-    await refreshAll();
   };
 
   const handleCategoryChangeQuick = async (sponsor: Sponsor, newCategory: SponsorCategory) => {
     soundEngine.playClick();
     try {
+      const updatedSponsors = sponsors.map((s) =>
+        s.id === sponsor.id
+          ? {
+              ...s,
+              category: newCategory,
+              featured: newCategory === 'vip',
+              badge_text: SPONSOR_CATEGORIES[newCategory].badgeText,
+            }
+          : s
+      );
+      updateSponsorsDirectly(updatedSponsors);
       await db.updateSponsor(sponsor.id, {
         category: newCategory,
         featured: newCategory === 'vip',
         badge_text: SPONSOR_CATEGORIES[newCategory].badgeText,
       });
       toast.success(`${sponsor.name} -> ${SPONSOR_CATEGORIES[newCategory].name} olarak güncellendi!`);
-      await refreshAll();
     } catch {
       toast.error('Kategori değiştirilemedi');
+      await refreshSponsorsOnly();
     }
   };
 
@@ -382,26 +425,8 @@ export const SponsorsManager: React.FC = () => {
     soundEngine.playClick();
     setReordering(true);
     try {
-      const sorted = sortSponsors(sponsors);
-      const index = sorted.findIndex((s) => s.id === id);
-      if (index === -1) return;
-
-      const targetIndex = direction === 'up' ? index - 1 : index + 1;
-      if (targetIndex < 0 || targetIndex >= sorted.length) return;
-
-      const currentItem = sorted[index];
-      const targetItem = sorted[targetIndex];
-
-      const currentOrder = currentItem.sort_order;
-      const targetOrder = targetItem.sort_order;
-
-      const newCurrentOrder = currentOrder === targetOrder ? (direction === 'up' ? targetOrder - 1 : targetOrder + 1) : targetOrder;
-      const newTargetOrder = currentOrder;
-
-      await db.updateSponsor(currentItem.id, { sort_order: newCurrentOrder });
-      await db.updateSponsor(targetItem.id, { sort_order: newTargetOrder });
-
-      await refreshAll();
+      const updated = await db.moveSponsorOrder(id, direction);
+      updateSponsorsDirectly(updated);
       toast.success('Sıralama güncellendi');
     } catch {
       toast.error('Sıralama güncellenemedi');
@@ -412,9 +437,9 @@ export const SponsorsManager: React.FC = () => {
 
   const handleQuickSortChange = async (id: string, newOrder: number) => {
     try {
-      await db.updateSponsor(id, { sort_order: newOrder });
+      const updated = await db.setSponsorSortOrder(id, newOrder);
+      updateSponsorsDirectly(updated);
       toast.success('Sıra numarası kaydedildi');
-      await refreshAll();
     } catch {
       toast.error('Sıra güncellenemedi');
     }
@@ -504,6 +529,15 @@ export const SponsorsManager: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleTestDatabase}
+            disabled={testingDb}
+            className="px-3.5 py-2.5 rounded-xl bg-emerald-950/70 border border-emerald-700/60 text-emerald-300 hover:text-white hover:bg-emerald-900/60 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+            title="Supabase Canlı Yazma & Okuma Testi"
+          >
+            <Activity className={`w-3.5 h-3.5 text-emerald-400 ${testingDb ? 'animate-spin' : ''}`} />
+            <span>{testingDb ? 'Test Ediliyor...' : 'DB Testi'}</span>
+          </button>
           <button
             onClick={() => {
               soundEngine.playClick();
@@ -1524,16 +1558,21 @@ export const SponsorsManager: React.FC = () => {
         </div>
       )}
 
-      {/* SQL Migration Modal */}
+      {/* SQL Migration & Setup Modal */}
       {showSqlModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#120b24] border border-violet-800/60 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+          <div className="bg-[#120b24] border border-violet-800/60 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
             <div className="p-5 border-b border-violet-800/40 flex items-center justify-between bg-violet-950/40">
               <div className="flex items-center gap-2">
                 <Database className="w-5 h-5 text-violet-400" />
-                <h3 className="text-sm sm:text-base font-black text-white">
-                  Supabase PostgreSQL Tablo & Kolon Kodları
-                </h3>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-white">
+                    Supabase PostgreSQL Şema ve SQL Kodları
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Veritabanı anlık senkronizasyonu ve tüm tablolar için gerekli SQL komutları
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setShowSqlModal(false)}
@@ -1543,74 +1582,180 @@ export const SponsorsManager: React.FC = () => {
               </button>
             </div>
 
+            {/* Modal Tabs */}
+            <div className="flex items-center gap-2 px-5 pt-3 border-b border-violet-800/30 bg-[#0f091e] overflow-x-auto">
+              <button
+                onClick={() => setSqlViewMode('clean')}
+                className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+                  sqlViewMode === 'clean'
+                    ? 'border-emerald-500 text-emerald-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                🔥 Sıfırdan Temiz Sponsors Tablosu (Önerilen)
+              </button>
+              <button
+                onClick={() => setSqlViewMode('migration')}
+                className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+                  sqlViewMode === 'migration'
+                    ? 'border-violet-500 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                ⚡ Eksik Kolonları Ekle (Migration)
+              </button>
+              <button
+                onClick={() => setSqlViewMode('full')}
+                className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer whitespace-nowrap ${
+                  sqlViewMode === 'full'
+                    ? 'border-violet-500 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                🏗️ Tüm Tablolar & İzinler (Full Schema)
+              </button>
+            </div>
+
             <div className="p-5 space-y-4 overflow-y-auto">
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Eğer Supabase veritabanınızda sponsor detay kolonları (çekim hızı, min yatırım, lisans, rtp, istatistikler, ödeme yöntemleri) henüz eklenmediyse, aşağıdaki SQL komutunu <strong>Supabase Dashboard &gt; SQL Editor</strong> bölümüne yapıştırıp <strong>Run</strong> diyerek çalıştırabilirsiniz:
-              </p>
+              {sqlViewMode === 'clean' ? (
+                <>
+                  <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-xs text-emerald-300">
+                    ✨ <strong>Sıfırdan Kusursuz Kurulum:</strong> Bu kod eski <code>sponsors</code> tablosunu kaldırıp otomatik ID üretimi, tüm detay kolonları (çekim hızı, bonus kodu, istatistikler, özellikler) ve RLS tam izinleriyle sıfırdan kurar.
+                  </div>
 
-              <div className="relative">
-                <pre className="p-4 rounded-xl bg-[#090514] border border-violet-900/60 text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto select-all">
-{`-- 1. Sponsors Tablosu Detay & İstatistik Kolonları
+                  <div className="relative">
+                    <pre className="p-4 rounded-xl bg-[#090514] border border-emerald-900/60 text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto select-all max-h-72">
+                      {SUPABASE_RECREATE_SPONSORS_SQL}
+                    </pre>
+
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(SUPABASE_RECREATE_SPONSORS_SQL);
+                        setSqlCopied(true);
+                        toast.success('Sıfırdan Temiz Kurulum SQL kodu kopyalandı!');
+                        setTimeout(() => setSqlCopied(false), 2000);
+                      }}
+                      className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+                    >
+                      {sqlCopied ? (
+                        <>
+                          <CheckCheck className="w-3.5 h-3.5 text-emerald-200" />
+                          <span>Kopyalandı!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>SQL Kopyala</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              ) : sqlViewMode === 'migration' ? (
+                <>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Eğer mevcut sponsorlarınızı silmeden sadece yeni kolonları (çekim hızı, bonus kodu, istatistikler, özellikler, ödeme yöntemleri vs.) eklemek isterseniz aşağıdaki kodu çalıştırabilirsiniz:
+                  </p>
+
+                  <div className="relative">
+                    <pre className="p-4 rounded-xl bg-[#090514] border border-violet-900/60 text-indigo-300 font-mono text-[11px] leading-relaxed overflow-x-auto select-all max-h-72">
+{`-- Sponsors Tablosu Kolon Güncellemesi
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS has_detail_page boolean DEFAULT true;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_code text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_headline text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS badge_text text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS min_deposit text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS withdrawal_speed text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS license text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS rtp_rate text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS pros jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS cons jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS faq jsonb;`}
-                </pre>
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS min_deposit text DEFAULT '50 ₺';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS withdrawal_speed text DEFAULT '3 - 15 Dakika';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS license text DEFAULT 'Curacao eGaming';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS rtp_rate text DEFAULT '%97.8';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text DEFAULT '1420';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text DEFAULT '7/24 Türkçe Canlı Destek';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS pros jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS cons jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS faq jsonb DEFAULT '[]'::jsonb;`}
+                    </pre>
 
-                <button
-                  onClick={() => {
-                    const sqlText = `-- 1. Sponsors Tablosu Detay & İstatistik Kolonları
+                    <button
+                      onClick={() => {
+                        const sqlText = `-- Sponsors Tablosu Kolon Güncellemesi
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS has_detail_page boolean DEFAULT true;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_code text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS bonus_headline text;
 ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS badge_text text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS min_deposit text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS withdrawal_speed text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS license text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS rtp_rate text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS pros jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS cons jsonb;
-ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS faq jsonb;`;
-                    navigator.clipboard.writeText(sqlText);
-                    setSqlCopied(true);
-                    toast.success('SQL kodu panoya kopyalandı!');
-                    setTimeout(() => setSqlCopied(false), 2000);
-                  }}
-                  className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
-                >
-                  {sqlCopied ? (
-                    <>
-                      <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
-                      <span>Kopyalandı!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Kopyala</span>
-                    </>
-                  )}
-                </button>
-              </div>
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS min_deposit text DEFAULT '50 ₺';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS withdrawal_speed text DEFAULT '3 - 15 Dakika';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS license text DEFAULT 'Curacao eGaming';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS rtp_rate text DEFAULT '%97.8';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS online_players text DEFAULT '1420';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS live_support text DEFAULT '7/24 Türkçe Canlı Destek';
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS payment_methods jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS stats jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS features jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS pros jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS cons jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS faq jsonb DEFAULT '[]'::jsonb;`;
+                        navigator.clipboard.writeText(sqlText);
+                        setSqlCopied(true);
+                        toast.success('Migration SQL kodu kopyalandı!');
+                        setTimeout(() => setSqlCopied(false), 2000);
+                      }}
+                      className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+                    >
+                      {sqlCopied ? (
+                        <>
+                          <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>Kopyalandı!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Kopyala</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Sıfırdan tam kurulum için tüm tabloları, RLS izinlerini ve migration fonksiyonlarını içeren eksiksiz SQL şeması:
+                  </p>
+
+                  <div className="relative">
+                    <pre className="p-4 rounded-xl bg-[#090514] border border-violet-900/60 text-indigo-300 font-mono text-[11px] leading-relaxed overflow-x-auto select-all max-h-72">
+                      {SUPABASE_SQL_SCHEMA}
+                    </pre>
+
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+                        setSqlCopied(true);
+                        toast.success('Tam Supabase SQL şeması kopyalandı!');
+                        setTimeout(() => setSqlCopied(false), 2000);
+                      }}
+                      className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+                    >
+                      {sqlCopied ? (
+                        <>
+                          <CheckCheck className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>Kopyalandı!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Tümünü Kopyala</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
 
               <div className="p-3 rounded-xl bg-violet-950/40 border border-violet-800/30 text-xs text-slate-400">
-                💡 <strong>Not:</strong> Bu SQL komutu var olan tablonuza zarar vermez (`IF NOT EXISTS` ile sadece eksik kolonları ekler). Kolonlar eklendiğinde tüm detay verileri doğrudan Supabase bulut veritabanınızda kalıcı saklanır.
+                💡 <strong>Nasıl Çalıştırılır:</strong> Supabase Dashboard &gt; Projeniz &gt; Sol Menüden <strong>SQL Editor</strong> &gt; <strong>New query</strong> &gt; Kodu Yapıştırın &gt; Yeşil <strong>RUN</strong> butonuna basın.
               </div>
             </div>
 
@@ -1620,6 +1765,89 @@ ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS faq jsonb;`;
                 className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all cursor-pointer"
               >
                 Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DB Test Result Modal */}
+      {showTestModal && dbTestResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#120b24] border border-violet-800/60 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col">
+            <div className="p-5 border-b border-violet-800/40 flex items-center justify-between bg-violet-950/40">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm sm:text-base font-black text-white">
+                  Veritabanı Canlı Teşhis & Test Sonucu
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowTestModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-violet-900/40 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-[#090514] border border-violet-900/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Supabase Bağlantısı:</span>
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5" /> Aktif & Doğrulandı
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Okuma (Select) Testi:</span>
+                  <span className={dbTestResult.read_test?.status === 'success' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    {dbTestResult.read_test?.status === 'success'
+                      ? `Başarılı (${dbTestResult.read_test.count} kayıt)`
+                      : `Hata: ${dbTestResult.read_test?.message || 'Başarısız'}`}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Yazma (Insert/Delete) Testi:</span>
+                  <span className={dbTestResult.write_test?.status === 'success' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                    {dbTestResult.write_test?.status === 'success'
+                      ? 'Başarılı (Kayıt eklendi ve silindi)'
+                      : `Hata: ${dbTestResult.write_test?.message || 'Başarısız'}`}
+                  </span>
+                </div>
+              </div>
+
+              {dbTestResult.columns_detected && dbTestResult.columns_detected.length > 0 && (
+                <div>
+                  <span className="text-slate-400 font-bold">Mevcut Kolonlar ({dbTestResult.columns_detected.length}):</span>
+                  <div className="flex flex-wrap gap-1 mt-1.5 max-h-24 overflow-y-auto">
+                    {dbTestResult.columns_detected.map((col: string) => (
+                      <span key={col} className="px-2 py-0.5 rounded-md bg-violet-950/80 border border-violet-800/40 text-[10px] text-violet-300 font-mono">
+                        {col}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {dbTestResult.errors && dbTestResult.errors.length > 0 && (
+                <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/40 text-rose-300 space-y-1">
+                  <div className="font-bold">Hata Detayları:</div>
+                  {dbTestResult.errors.map((err: string, i: number) => (
+                    <div key={i} className="text-[11px] font-mono">{err}</div>
+                  ))}
+                  <div className="mt-2 text-[11px] text-slate-300">
+                    💡 Çözüm: "SQL Tablo Kodu" butonuna tıklayıp <strong>Sıfırdan Temiz Sponsors Tablosu</strong> kodunu Supabase SQL Editor'de çalıştırınız.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-violet-800/40 flex justify-end bg-violet-950/30">
+              <button
+                onClick={() => setShowTestModal(false)}
+                className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all cursor-pointer"
+              >
+                Tamam
               </button>
             </div>
           </div>

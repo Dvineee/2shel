@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
@@ -592,29 +593,28 @@ app.get('/api/portal/data', async (req, res) => {
       fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaway_entries?select=*`),
     ]);
 
-    // Merge Supabase sponsors with serverCustomSponsors, remove serverDeletedSponsorIds
-    let finalSponsorsList: any[] = [];
+    // Merge Supabase sponsors, remove deleted ids
     const remoteSponsors = Array.isArray(sponsors) ? sponsors : [];
+    const finalSponsorsMap = new Map<string, any>();
 
     for (const sp of remoteSponsors) {
       const spId = String(sp.id);
       if (serverDeletedSponsorIds.has(spId)) continue;
       if (serverCustomSponsors.has(spId)) {
-        finalSponsorsList.push({ ...sp, ...serverCustomSponsors.get(spId) });
+        finalSponsorsMap.set(spId, { ...sp, ...serverCustomSponsors.get(spId) });
       } else {
-        finalSponsorsList.push(sp);
+        finalSponsorsMap.set(spId, sp);
       }
     }
 
     for (const [id, customSp] of serverCustomSponsors.entries()) {
       if (serverDeletedSponsorIds.has(id)) continue;
-      const alreadyInList = finalSponsorsList.some(
-        (s) => String(s.id) === id || (s.slug && customSp.slug && String(s.slug).toLowerCase() === String(customSp.slug).toLowerCase())
-      );
-      if (!alreadyInList) {
-        finalSponsorsList.push(customSp);
+      if (!finalSponsorsMap.has(id)) {
+        finalSponsorsMap.set(id, customSp);
       }
     }
+
+    const finalSponsorsList = Array.from(finalSponsorsMap.values());
 
     const entriesList = Array.isArray(giveaway_entries) ? giveaway_entries : [];
     const remoteGiveaways = Array.isArray(giveaways) ? giveaways : [];
@@ -713,11 +713,13 @@ app.post('/api/sponsors/save', async (req, res) => {
     const hasValidUuid = Boolean(sponsorId && isUuidPattern.test(sponsorId));
 
     const generatedSlug = sponsor.slug || sponsor.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const targetCategory = sponsor.category === 'main' ? 'main' : sponsor.category === 'vip' ? 'vip' : 'trusted';
+    const isVip = targetCategory === 'vip';
 
     const payload: any = {
       name: sponsor.name,
       slug: generatedSlug,
-      category: sponsor.category || 'main',
+      category: targetCategory,
       logo_url: sponsor.logo_url || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80',
       banner_url: sponsor.banner_url || null,
       description: sponsor.description || sponsor.full_review || '',
@@ -725,8 +727,8 @@ app.post('/api/sponsors/save', async (req, res) => {
       website_url: sponsor.website_url || sponsor.direct_url || 'https://example.com',
       button_text: sponsor.button_text || 'SİTEYE GİT & KAZAN',
       rating: Number(sponsor.rating || 4.8),
-      featured: Boolean(sponsor.featured || sponsor.category === 'vip'),
-      is_vip: Boolean(sponsor.featured || sponsor.category === 'vip' || sponsor.is_vip),
+      featured: isVip,
+      is_vip: isVip,
       is_active: sponsor.active !== false && sponsor.is_active !== false,
       sort_order: typeof sponsor.sort_order === 'number' ? sponsor.sort_order : (parseInt(sponsor.sort_order) || 0),
       bonus_code: sponsor.bonus_code || null,
@@ -762,6 +764,8 @@ app.post('/api/sponsors/save', async (req, res) => {
             return Array.isArray(data) && data.length > 0 ? data[0] : currentPayload;
           }
           const errText = await resp.text();
+          console.warn(`[Supabase ${method}] attempt ${attempt} response:`, resp.status, errText);
+
           // Check if Supabase complained about a specific missing column
           const colMatch =
             errText.match(/Could not find the column '([^']+)'/i) ||
@@ -771,14 +775,23 @@ app.post('/api/sponsors/save', async (req, res) => {
             delete currentPayload[colMatch[1]];
             continue;
           }
-          // If ID type mismatch (e.g. invalid input syntax for type bigint), delete id and retry
-          if (errText.includes('invalid input syntax for type') || errText.includes('22P02')) {
+
+          // If ID type mismatch (e.g. invalid input syntax for type bigint or integer), delete id and retry
+          if (errText.includes('invalid input syntax for type') || errText.includes('22P02') || errText.includes('bigint')) {
             delete currentPayload.id;
             continue;
           }
+
+          // If ID cannot be null (id TEXT PRIMARY KEY without default), ensure ID is set
+          if (errText.includes('null value in column "id"') || errText.includes('violates not-null constraint')) {
+            currentPayload.id = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : `sp-${Date.now()}`;
+            continue;
+          }
+
           // Fallback stripped payloads
           if (attempt === 0) {
             currentPayload = {
+              ...(currentPayload.id ? { id: currentPayload.id } : {}),
               name: sponsor.name,
               slug: payload.slug,
               logo_url: payload.logo_url,
@@ -797,6 +810,7 @@ app.post('/api/sponsors/save', async (req, res) => {
             };
           } else if (attempt === 1) {
             currentPayload = {
+              ...(currentPayload.id ? { id: currentPayload.id } : {}),
               name: sponsor.name,
               slug: payload.slug,
               logo_url: payload.logo_url,
@@ -810,7 +824,8 @@ app.post('/api/sponsors/save', async (req, res) => {
           } else {
             break;
           }
-        } catch {
+        } catch (e: any) {
+          console.warn(`[Supabase ${method}] network exception attempt ${attempt}:`, e?.message);
           break;
         }
       }
@@ -869,6 +884,10 @@ app.post('/api/sponsors/save', async (req, res) => {
       const insertPayload: any = { ...payload };
       if (hasValidUuid) {
         insertPayload.id = sponsorId;
+      } else if (sponsorId && !sponsorId.startsWith('sp-')) {
+        insertPayload.id = sponsorId;
+      } else {
+        insertPayload.id = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : `sp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       }
       savedData = await trySupabaseRequest(`${SUPABASE_URL}/rest/v1/sponsors`, 'POST', insertPayload);
     }
@@ -947,6 +966,93 @@ app.post('/api/sponsors/delete', async (req, res) => {
     console.error('Error in /api/sponsors/delete:', err);
     return res.status(500).json({ success: false, message: 'Silme hatası' });
   }
+});
+
+// Admin Supabase Diagnostics & Live Test Endpoint
+app.get('/api/sponsors/test-connection', async (_req, res) => {
+  const result: any = {
+    supabase_url: SUPABASE_URL,
+    has_anon_key: Boolean(SUPABASE_ANON_KEY && SUPABASE_ANON_KEY.length > 20),
+    read_test: null,
+    write_test: null,
+    columns_detected: [],
+    errors: [],
+  };
+
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+    Prefer: 'return=representation',
+  };
+
+  // 1. Read Test
+  try {
+    const readRes = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?select=*&limit=3`, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (readRes.ok) {
+      const data = await readRes.json();
+      result.read_test = { status: 'success', count: Array.isArray(data) ? data.length : 0 };
+      if (Array.isArray(data) && data.length > 0) {
+        result.columns_detected = Object.keys(data[0]);
+      }
+    } else {
+      const errText = await readRes.text();
+      result.read_test = { status: 'failed', code: readRes.status, message: errText };
+      result.errors.push(`Read error (${readRes.status}): ${errText}`);
+    }
+  } catch (e: any) {
+    result.read_test = { status: 'exception', message: e?.message };
+    result.errors.push(`Read network exception: ${e?.message}`);
+  }
+
+  // 2. Write (Insert) Test with auto-delete
+  try {
+    const testId = `test-${Date.now()}`;
+    const testPayload: any = {
+      id: testId,
+      name: 'Supabase Test Sponsoru',
+      slug: `test-sponsor-${Date.now()}`,
+      website_url: 'https://example.com',
+      direct_url: 'https://example.com',
+      category: 'main',
+      rating: 5.0,
+      is_active: false,
+      sort_order: 9999,
+      description: 'Bağlantı test kaydı',
+      short_description: 'Test',
+    };
+
+    const writeRes = await fetch(`${SUPABASE_URL}/rest/v1/sponsors`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(testPayload),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (writeRes.ok) {
+      const inserted = await writeRes.json();
+      result.write_test = { status: 'success', message: 'Yazma ve okuma başarılı!', inserted };
+
+      // Clean up test record
+      const delId = Array.isArray(inserted) && inserted.length > 0 && inserted[0].id ? inserted[0].id : testId;
+      fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(delId)}`, {
+        method: 'DELETE',
+        headers,
+      }).catch(() => {});
+    } else {
+      const errText = await writeRes.text();
+      result.write_test = { status: 'failed', code: writeRes.status, message: errText };
+      result.errors.push(`Write error (${writeRes.status}): ${errText}`);
+    }
+  } catch (e: any) {
+    result.write_test = { status: 'exception', message: e?.message };
+    result.errors.push(`Write network exception: ${e?.message}`);
+  }
+
+  return res.json(result);
 });
 
 // Admin Giveaway Save / Upsert Endpoint
@@ -1120,7 +1226,7 @@ app.post('/api/giveaways/join', async (req, res) => {
       Prefer: 'return=representation',
     };
 
-    // Check if giveaway is completed or expired
+    // Step 1: Check if giveaway is completed or expired
     try {
       const gCheckRes = await fetch(
         `${SUPABASE_URL}/rest/v1/giveaways?id=eq.${encodeURIComponent(giveaway_id)}`,
@@ -1130,7 +1236,10 @@ app.post('/api/giveaways/join', async (req, res) => {
         const gList = await gCheckRes.json();
         if (Array.isArray(gList) && gList.length > 0) {
           const targetG = gList[0];
-          const isExpired = targetG.is_completed || (targetG.end_at && new Date(targetG.end_at).getTime() <= Date.now()) || (targetG.end_date && new Date(targetG.end_date).getTime() <= Date.now());
+          const isExpired =
+            targetG.is_completed ||
+            (targetG.end_at && new Date(targetG.end_at).getTime() <= Date.now()) ||
+            (targetG.end_date && new Date(targetG.end_date).getTime() <= Date.now());
           if (isExpired) {
             return res.status(400).json({
               success: false,
@@ -1144,7 +1253,7 @@ app.post('/api/giveaways/join', async (req, res) => {
       // continue
     }
 
-    // Check duplicate in Supabase
+    // Step 2: Check duplicate in Supabase (by user_id)
     try {
       const checkRes = await fetch(
         `${SUPABASE_URL}/rest/v1/giveaway_entries?giveaway_id=eq.${encodeURIComponent(giveaway_id)}&user_id=eq.${encodeURIComponent(user_id)}`,
@@ -1160,11 +1269,48 @@ app.post('/api/giveaways/join', async (req, res) => {
       // ignore
     }
 
-    // Insert entry
+    // Step 3: Auto-ensure giveaway exists in Supabase so Foreign Key doesn't fail
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/giveaway_entries`, {
+      const gExistsRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/giveaways?id=eq.${encodeURIComponent(giveaway_id)}&select=id`,
+        { headers, signal: AbortSignal.timeout(3000) }
+      );
+      const gList = gExistsRes.ok ? await gExistsRes.json() : [];
+      if (!Array.isArray(gList) || gList.length === 0) {
+        const knownG = serverCustomGiveaways.get(giveaway_id);
+        const autoGiveawayPayload = {
+          id: giveaway_id,
+          title: knownG?.title || 'Büyük Topluluk Çekilişi',
+          prize: knownG?.prize_details || knownG?.prize || 'Ödül',
+          prize_details: knownG?.prize_details || 'Ödül Paketi',
+          description: knownG?.description || '',
+          image_url: knownG?.image_url || 'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?auto=format&fit=crop&w=800&h=450&q=80',
+          end_date: knownG?.end_at || new Date(Date.now() + 7 * 86400000).toISOString(),
+          end_at: knownG?.end_at || new Date(Date.now() + 7 * 86400000).toISOString(),
+          is_active: true,
+          active: true,
+          is_completed: false,
+          total_winners: Number(knownG?.winner_count || 1),
+          winner_count: Number(knownG?.winner_count || 1),
+          entries_count: 1,
+        };
+        await fetch(`${SUPABASE_URL}/rest/v1/giveaways`, {
+          method: 'POST',
+          headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify(autoGiveawayPayload),
+          signal: AbortSignal.timeout(4000),
+        });
+      }
+    } catch (gErr) {
+      console.warn('Auto-ensure giveaway row error:', gErr);
+    }
+
+    // Step 4: Insert entry into giveaway_entries in Supabase
+    let entrySavedToDb = false;
+    try {
+      const insRes = await fetch(`${SUPABASE_URL}/rest/v1/giveaway_entries`, {
         method: 'POST',
-        headers,
+        headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify({
           id: entryId,
           giveaway_id,
@@ -1172,10 +1318,41 @@ app.post('/api/giveaways/join', async (req, res) => {
           username: cleanUsername,
           created_at: nowIso,
         }),
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(4000),
       });
+      if (insRes.ok) {
+        entrySavedToDb = true;
+      } else {
+        const errText = await insRes.text();
+        console.warn('giveaway_entries primary insert failed:', insRes.status, errText);
+        // Fallback: minimal insert without explicit ID in case table uses auto-generated UUID
+        const fallbackRes = await fetch(`${SUPABASE_URL}/rest/v1/giveaway_entries`, {
+          method: 'POST',
+          headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
+          body: JSON.stringify({
+            giveaway_id,
+            user_id,
+            username: cleanUsername,
+          }),
+          signal: AbortSignal.timeout(4000),
+        });
+        if (fallbackRes.ok) {
+          entrySavedToDb = true;
+        }
+      }
     } catch (e) {
       console.warn('Supabase entry insert warning:', e);
+    }
+
+    // Step 5: Update entries_count in Supabase and memory
+    try {
+      const inMemoryG = serverCustomGiveaways.get(giveaway_id);
+      if (inMemoryG) {
+        inMemoryG.entries_count = (inMemoryG.entries_count || 0) + 1;
+        serverCustomGiveaways.set(giveaway_id, inMemoryG);
+      }
+    } catch {
+      // ignore
     }
 
     // Invalidate portal cache
@@ -1185,11 +1362,84 @@ app.post('/api/giveaways/join', async (req, res) => {
     return res.json({
       success: true,
       message: '🎉 Çekilişe başarıyla katıldınız! Bol şans.',
+      saved_to_db: entrySavedToDb,
       entry: { id: entryId, giveaway_id, user_id, username: cleanUsername, created_at: nowIso },
     });
   } catch (err: any) {
     console.error('Error joining giveaway:', err);
     return res.status(500).json({ success: false, message: 'Çekilişe katılırken sunucu hatası oluştu.' });
+  }
+});
+
+// Admin / Client Giveaway & Entries Test Connection Endpoint
+app.get('/api/giveaways/test-connection', async (req, res) => {
+  try {
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    // 1. Test giveaways table
+    let giveawaysStatus = 'error';
+    let giveawaysCount = 0;
+    let giveawaysError = '';
+    try {
+      const gRes = await fetch(`${SUPABASE_URL}/rest/v1/giveaways?select=*&limit=10`, {
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        giveawaysStatus = 'ok';
+        giveawaysCount = Array.isArray(gData) ? gData.length : 0;
+      } else {
+        giveawaysError = await gRes.text();
+      }
+    } catch (e: any) {
+      giveawaysError = e?.message || 'Ağ hatası';
+    }
+
+    // 2. Test giveaway_entries table
+    let entriesStatus = 'error';
+    let entriesCount = 0;
+    let entriesError = '';
+    try {
+      const eRes = await fetch(`${SUPABASE_URL}/rest/v1/giveaway_entries?select=*&limit=10`, {
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+      if (eRes.ok) {
+        const eData = await eRes.json();
+        entriesStatus = 'ok';
+        entriesCount = Array.isArray(eData) ? eData.length : 0;
+      } else {
+        entriesError = await eRes.text();
+      }
+    } catch (e: any) {
+      entriesError = e?.message || 'Ağ hatası';
+    }
+
+    return res.json({
+      success: giveawaysStatus === 'ok' && entriesStatus === 'ok',
+      url: SUPABASE_URL,
+      giveaways: {
+        status: giveawaysStatus,
+        count: giveawaysCount,
+        error: giveawaysError || null,
+      },
+      giveaway_entries: {
+        status: entriesStatus,
+        count: entriesCount,
+        error: entriesError || null,
+      },
+      message:
+        giveawaysStatus === 'ok' && entriesStatus === 'ok'
+          ? 'Supabase çekiliş ve katılım tabloları aktif ve erişilebilir durumda.'
+          : 'Supabase çekiliş veya katılım tablosuna erişilemedi. Lütfen SQL kodunu Supabase Dashboard > SQL Editor alanında çalıştırınız.',
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Bağlantı testi sırasında hata oluştu' });
   }
 });
 
@@ -1696,6 +1946,23 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+
+    // Explicit fallback for client-side routing on page reload (e.g. /admin/sponsors)
+    app.use('*', async (req, res, next) => {
+      if (req.originalUrl.startsWith('/api')) {
+        return next();
+      }
+      try {
+        const url = req.originalUrl;
+        const indexPath = path.resolve(process.cwd(), 'index.html');
+        let template = fs.readFileSync(indexPath, 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));

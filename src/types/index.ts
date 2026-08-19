@@ -64,6 +64,7 @@ export interface Sponsor {
   button_text: string;
   rating?: number;
   featured: boolean;
+  is_vip?: boolean;
   verified: boolean;
   active: boolean;
   has_detail_page?: boolean;

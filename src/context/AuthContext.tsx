@@ -26,9 +26,21 @@ const CURRENT_USER_KEY = 'shelbyonline_current_user_id';
 const LEGACY_USER_KEY = 'sponsorhub_current_user_id';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<Profile | null>(null);
+  const [user, setUserState] = useState<Profile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const isLoadingUserRef = React.useRef(false);
+
+  const setUser = (newProfile: Profile | null) => {
+    setUserState(newProfile);
+    if (newProfile) {
+      try {
+        localStorage.setItem(CURRENT_USER_KEY, newProfile.id);
+      } catch {}
+    } else {
+      localStorage.removeItem(CURRENT_USER_KEY);
+      localStorage.removeItem(LEGACY_USER_KEY);
+    }
+  };
 
   const loadUser = async () => {
     if (isLoadingUserRef.current) return;
@@ -48,7 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      // Check stored user ID
+      // Check stored user ID from Supabase profiles
       const storedId = localStorage.getItem(CURRENT_USER_KEY) || localStorage.getItem(LEGACY_USER_KEY);
       if (storedId) {
         const profiles = await db.getProfiles();
@@ -64,17 +76,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           setUser(matched);
         } else {
-          localStorage.removeItem(CURRENT_USER_KEY);
-          localStorage.removeItem(LEGACY_USER_KEY);
           setUser(null);
         }
       } else {
-        // No stored user -> remain null (no demo/mock auto login)
         setUser(null);
       }
     } catch (err) {
-      console.error('Error loading user auth:', err);
-      setUser(null);
+      console.error('Error loading user auth from Supabase:', err);
     } finally {
       isLoadingUserRef.current = false;
       setLoading(false);

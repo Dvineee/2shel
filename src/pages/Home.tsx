@@ -57,7 +57,7 @@ export const Home: React.FC = () => {
         <SponsorGrid
           sponsors={activeSponsors}
           loading={loading}
-          title="GÜVENİLİR SPONSORLAR & BONUSLAR"
+          title="GÜVENİLİR SPONSORLAR"
           showFilters={true}
         />
       )}

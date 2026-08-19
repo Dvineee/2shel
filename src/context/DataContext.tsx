@@ -37,6 +37,8 @@ interface DataContextType {
   loading: boolean;
   error: string | null;
   refreshAll: () => Promise<void>;
+  refreshSponsorsOnly: () => Promise<void>;
+  updateSponsorsDirectly: (newSponsors: Sponsor[]) => void;
   updateSettings: (newSettings: Partial<SiteSettings>) => Promise<void>;
 }
 
@@ -189,6 +191,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadData]);
 
+  const updateSponsorsDirectly = useCallback((newSponsors: Sponsor[]) => {
+    setSponsors(sortSponsors(newSponsors));
+  }, []);
+
+  const refreshSponsorsOnly = useCallback(async () => {
+    try {
+      const fresh = await db.getSponsors();
+      setSponsors(sortSponsors(fresh));
+    } catch (e) {
+      console.warn('refreshSponsorsOnly warning:', e);
+    }
+  }, []);
+
   const updateSettings = async (newSettings: Partial<SiteSettings>) => {
     const updated = await db.updateSettings(newSettings);
     setSettings(updated);
@@ -237,6 +252,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshAll: async () => {
           await loadData(true);
         },
+        refreshSponsorsOnly,
+        updateSponsorsDirectly,
         updateSettings,
       }}
     >

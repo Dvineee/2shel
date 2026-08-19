@@ -2,6 +2,7 @@ import {
   Sponsor,
   SponsorStat,
   SponsorFeature,
+  SponsorFAQ,
   SponsorCategory,
   HeroSlide,
   Banner,
@@ -58,7 +59,10 @@ const STORAGE_KEYS = {
   DELETED_SPONSORS: 'sponsorhub_deleted_sponsors_v1',
 };
 
-// Local cache sync helper
+// 100% In-Memory Cache (Zero LocalStorage persistence for application data)
+const memoryCache = new Map<string, any>();
+
+// Local event broadcaster for instant UI synchronization
 function broadcastChange(key?: string) {
   try {
     window.dispatchEvent(new CustomEvent('sponsorhub_db_change', { detail: { key } }));
@@ -67,23 +71,42 @@ function broadcastChange(key?: string) {
   }
 }
 
-function getStored<T>(key: string, defaultValue: T): T {
+// Purge all legacy LocalStorage data so browser storage remains completely clean
+function purgeAllLegacyLocalStorage() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
-    const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : defaultValue;
+    const keys = Object.keys(localStorage);
+    for (const k of keys) {
+      if (k.startsWith('sponsorhub_') || k.startsWith('shelbyonline_current_user_profile')) {
+        localStorage.removeItem(k);
+      }
+    }
   } catch {
-    return defaultValue;
+    // ignore
   }
 }
 
-function setStored<T>(key: string, value: T, silent = false): void {
+// Run cleanup immediately on load
+if (typeof window !== 'undefined') {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-    if (!silent) {
-      broadcastChange(key);
-    }
-  } catch (err) {
-    console.error('Storage error:', err);
+    purgeAllLegacyLocalStorage();
+  } catch {}
+}
+
+function getStored<T>(key: string, defaultValue: T): T {
+  if (memoryCache.has(key)) {
+    return memoryCache.get(key) as T;
+  }
+  memoryCache.set(key, defaultValue);
+  return defaultValue;
+}
+
+function setStored<T>(key: string, value: T, silent = false): void {
+  // Pure in-memory state - no LocalStorage write
+  memoryCache.set(key, value);
+
+  if (!silent) {
+    broadcastChange(key);
   }
 }
 
@@ -194,58 +217,69 @@ export const db = {
     }
 
     let mappedSponsors: Sponsor[] = [];
-    if (Array.isArray(sponsors) && sponsors.length > 0) {
-      const existingLocalSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
-      const localMap = new Map<string, Sponsor>();
-      existingLocalSponsors.forEach((s) => {
-        if (s.id) localMap.set(s.id, s);
-        if (s.slug) localMap.set(s.slug, s);
-        if (s.name) localMap.set(s.name.toLowerCase().trim(), s);
-      });
-
+    if (Array.isArray(sponsors)) {
       mappedSponsors = sponsors.map((d: any) => {
         const cat = getSponsorCategory(d);
         const idStr = String(d.id);
         const nameStr = (d.name || d.title || 'Sponsor').trim();
         const slugStr = d.slug || (nameStr ? nameStr.toLowerCase().replace(/[^a-z0-9]+/g, '-') : idStr);
-        const local = localMap.get(idStr) || localMap.get(slugStr) || localMap.get(nameStr.toLowerCase());
 
-        // Parse stats: if database returned array with content, use it. Otherwise fallback to local customized stats, else defaults.
-        let resolvedStats: SponsorStat[] = [
-          { id: `stat-1`, label: 'İlk Yatırım', value: '%100', sort_order: 1 },
-          { id: `stat-2`, label: 'Deneme Bonusu', value: '250 TL', sort_order: 2 },
-          { id: `stat-3`, label: 'Kayıp Bonusu', value: '%20', sort_order: 3 },
-        ];
-        if (Array.isArray(d.stats) && d.stats.length > 0) {
+        // Parse stats
+        let resolvedStats: SponsorStat[] = [];
+        if (Array.isArray(d.stats)) {
           resolvedStats = d.stats;
         } else if (typeof d.stats === 'string') {
           try {
             const parsed = JSON.parse(d.stats);
-            if (Array.isArray(parsed) && parsed.length > 0) resolvedStats = parsed;
+            if (Array.isArray(parsed)) resolvedStats = parsed;
           } catch {
             // ignore
           }
-        } else if (local?.stats && Array.isArray(local.stats) && local.stats.length > 0) {
-          resolvedStats = local.stats;
         }
 
         // Parse features
-        let resolvedFeatures: SponsorFeature[] = [
-          { id: `feat-1`, text: 'Anında Çekim İmkanı', sort_order: 1 },
-          { id: `feat-2`, text: '7/24 Türkçe Canlı Destek', sort_order: 2 },
-          { id: `feat-3`, text: 'Lisanslı & Güvenilir Altyapı', sort_order: 3 },
-        ];
-        if (Array.isArray(d.features) && d.features.length > 0) {
+        let resolvedFeatures: SponsorFeature[] = [];
+        if (Array.isArray(d.features)) {
           resolvedFeatures = d.features;
         } else if (typeof d.features === 'string') {
           try {
             const parsed = JSON.parse(d.features);
-            if (Array.isArray(parsed) && parsed.length > 0) resolvedFeatures = parsed;
+            if (Array.isArray(parsed)) resolvedFeatures = parsed;
           } catch {
             // ignore
           }
-        } else if (local?.features && Array.isArray(local.features) && local.features.length > 0) {
-          resolvedFeatures = local.features;
+        }
+
+        // Parse payment methods
+        let resolvedPaymentMethods: string[] = ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete'];
+        if (Array.isArray(d.payment_methods) && d.payment_methods.length > 0) {
+          resolvedPaymentMethods = d.payment_methods;
+        } else if (typeof d.payment_methods === 'string') {
+          try {
+            const parsed = JSON.parse(d.payment_methods);
+            if (Array.isArray(parsed)) resolvedPaymentMethods = parsed;
+          } catch {
+            // ignore
+          }
+        }
+
+        // Parse pros / cons / faq
+        let resolvedPros: string[] = [];
+        if (Array.isArray(d.pros)) resolvedPros = d.pros;
+        else if (typeof d.pros === 'string') {
+          try { const p = JSON.parse(d.pros); if (Array.isArray(p)) resolvedPros = p; } catch {}
+        }
+
+        let resolvedCons: string[] = [];
+        if (Array.isArray(d.cons)) resolvedCons = d.cons;
+        else if (typeof d.cons === 'string') {
+          try { const c = JSON.parse(d.cons); if (Array.isArray(c)) resolvedCons = c; } catch {}
+        }
+
+        let resolvedFaq: SponsorFAQ[] = [];
+        if (Array.isArray(d.faq)) resolvedFaq = d.faq;
+        else if (typeof d.faq === 'string') {
+          try { const f = JSON.parse(d.faq); if (Array.isArray(f)) resolvedFaq = f; } catch {}
         }
 
         return {
@@ -253,65 +287,45 @@ export const db = {
           id: idStr,
           name: nameStr,
           slug: slugStr,
-          logo_url: d.logo_url || d.logo || local?.logo_url || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80',
-          banner_url: d.banner_url || d.banner || local?.banner_url || '',
-          bonus_text: d.bonus_text || d.bonus || d.bonus_code || local?.bonus_text || '',
-          description: d.description || d.full_review || d.desc || local?.description || '',
-          short_description: d.short_description || d.short_desc || local?.short_description || '',
-          website_url: d.website_url || d.direct_url || d.link || d.url || local?.website_url || 'https://example.com',
-          button_text: d.button_text || d.btn_text || local?.button_text || 'SİTEYE GİT & KAZAN',
-          rating: Number(d.rating || d.score || local?.rating || 4.8),
+          logo_url: d.logo_url || d.logo || '',
+          banner_url: d.banner_url || d.banner || '',
+          bonus_text: d.bonus_text || d.bonus || d.bonus_code || '',
+          description: d.description || d.full_review || d.desc || '',
+          short_description: d.short_description || d.short_desc || '',
+          website_url: d.website_url || d.direct_url || d.link || d.url || 'https://example.com',
+          button_text: d.button_text || d.btn_text || 'SİTEYE GİT & KAZAN',
+          rating: Number(d.rating || d.score || 5.0),
           category: cat,
-          featured: cat === 'vip' || (d.is_vip !== undefined && d.is_vip !== null ? Boolean(d.is_vip) : (d.featured !== undefined ? Boolean(d.featured) : Boolean(local?.featured))),
-          verified: d.verified !== undefined ? d.verified !== false : (local?.verified !== false),
-          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== undefined ? Boolean(d.active) : (local?.active !== undefined ? Boolean(local.active) : true)),
-          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (local?.sort_order !== undefined ? local.sort_order : 0),
-          bonus_code: d.bonus_code !== undefined && d.bonus_code !== null ? d.bonus_code : (local?.bonus_code || ''),
-          bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null ? d.bonus_headline : (local?.bonus_headline || ''),
-          badge_text: d.badge_text !== undefined && d.badge_text !== null ? d.badge_text : (local?.badge_text || ''),
-          min_deposit: d.min_deposit !== undefined && d.min_deposit !== null ? d.min_deposit : (local?.min_deposit || '50 ₺'),
-          withdrawal_speed: d.withdrawal_speed !== undefined && d.withdrawal_speed !== null ? d.withdrawal_speed : (local?.withdrawal_speed || '3 - 15 Dakika'),
-          license: d.license !== undefined && d.license !== null ? d.license : (local?.license || 'Curacao eGaming'),
-          rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null ? d.rtp_rate : (local?.rtp_rate || '%97.8'),
-          online_players: d.online_players ? String(d.online_players) : (local?.online_players || ''),
-          live_support: d.live_support || local?.live_support || '7/24 Türkçe Canlı Destek',
-          payment_methods: Array.isArray(d.payment_methods) && d.payment_methods.length > 0
-            ? d.payment_methods
-            : (local?.payment_methods || ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete']),
+          featured: cat === 'vip',
+          is_vip: cat === 'vip',
+          verified: d.verified !== undefined ? d.verified !== false : true,
+          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== undefined ? Boolean(d.active) : true),
+          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : 0,
+          bonus_code: d.bonus_code !== undefined && d.bonus_code !== null ? d.bonus_code : '',
+          bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null ? d.bonus_headline : '',
+          badge_text: d.badge_text !== undefined && d.badge_text !== null ? d.badge_text : '',
+          min_deposit: d.min_deposit !== undefined && d.min_deposit !== null ? d.min_deposit : '50 ₺',
+          withdrawal_speed: d.withdrawal_speed !== undefined && d.withdrawal_speed !== null ? d.withdrawal_speed : '3 - 15 Dakika',
+          license: d.license !== undefined && d.license !== null ? d.license : 'Curacao eGaming',
+          rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null ? d.rtp_rate : '%97.8',
+          online_players: d.online_players ? String(d.online_players) : '',
+          live_support: d.live_support || '7/24 Türkçe Canlı Destek',
+          payment_methods: resolvedPaymentMethods,
           stats: resolvedStats,
           features: resolvedFeatures,
-          has_detail_page: d.has_detail_page !== undefined && d.has_detail_page !== null ? Boolean(d.has_detail_page) : (local?.has_detail_page !== undefined ? Boolean(local.has_detail_page) : true),
-          custom_review: d.custom_review || local?.custom_review || '',
-          pros: Array.isArray(d.pros) ? d.pros : (local?.pros || []),
-          cons: Array.isArray(d.cons) ? d.cons : (local?.cons || []),
-          faq: Array.isArray(d.faq) ? d.faq : (local?.faq || []),
+          has_detail_page: d.has_detail_page !== undefined && d.has_detail_page !== null ? Boolean(d.has_detail_page) : true,
+          custom_review: d.custom_review || '',
+          pros: resolvedPros,
+          cons: resolvedCons,
+          faq: resolvedFaq,
         };
-      });
-
-      // Retain locally created sponsors that aren't in remote sponsors yet, unless explicitly deleted
-      const deletedSet = new Set(getStored<string[]>(STORAGE_KEYS.DELETED_SPONSORS, []));
-      const remoteIds = new Set(mappedSponsors.map((s) => String(s.id)));
-      const remoteSlugs = new Set(mappedSponsors.map((s) => (s.slug || '').toLowerCase()));
-      const remoteNames = new Set(mappedSponsors.map((s) => (s.name || '').toLowerCase().trim()));
-
-      existingLocalSponsors.forEach((loc) => {
-        if (
-          loc &&
-          loc.id &&
-          !deletedSet.has(String(loc.id)) &&
-          !remoteIds.has(String(loc.id)) &&
-          !remoteSlugs.has((loc.slug || '').toLowerCase()) &&
-          !remoteNames.has((loc.name || '').toLowerCase().trim())
-        ) {
-          mappedSponsors.push(loc);
-        }
       });
 
       mappedSponsors = sortSponsors(mappedSponsors);
       setStored(STORAGE_KEYS.SPONSORS, mappedSponsors, true);
     } else {
-      const cached = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
-      mappedSponsors = (cached && cached.length > 0) ? cached : initialSponsors;
+      const cached = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
+      mappedSponsors = cached || [];
     }
 
     let mappedHeroSlides: HeroSlide[] = [];
@@ -613,16 +627,8 @@ export const db = {
     return updated;
   },
 
-  // --- Sponsors (Database Authoritative) ---
+  // --- Sponsors (Supabase Real-Time Authoritative) ---
   async getSponsors(): Promise<Sponsor[]> {
-    const existingLocalSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
-    const localMap = new Map<string, Sponsor>();
-    existingLocalSponsors.forEach((s) => {
-      if (s.id) localMap.set(s.id, s);
-      if (s.slug) localMap.set(s.slug, s);
-      if (s.name) localMap.set(s.name.toLowerCase().trim(), s);
-    });
-
     if (isSupabaseReady()) {
       try {
         const { data, error } = await withTimeout(
@@ -638,7 +644,6 @@ export const db = {
             const idStr = String(d.id);
             const nameStr = (d.name || d.title || 'Sponsor').trim();
             const slugStr = d.slug || (nameStr ? nameStr.toLowerCase().replace(/[^a-z0-9]+/g, '-') : idStr);
-            const local = localMap.get(idStr) || localMap.get(slugStr) || localMap.get(nameStr.toLowerCase());
 
             // Parse stats
             let resolvedStats: SponsorStat[] = [
@@ -652,11 +657,7 @@ export const db = {
               try {
                 const parsed = JSON.parse(d.stats);
                 if (Array.isArray(parsed) && parsed.length > 0) resolvedStats = parsed;
-              } catch {
-                // ignore
-              }
-            } else if (local?.stats && Array.isArray(local.stats) && local.stats.length > 0) {
-              resolvedStats = local.stats;
+              } catch {}
             }
 
             // Parse features
@@ -671,11 +672,37 @@ export const db = {
               try {
                 const parsed = JSON.parse(d.features);
                 if (Array.isArray(parsed) && parsed.length > 0) resolvedFeatures = parsed;
-              } catch {
-                // ignore
-              }
-            } else if (local?.features && Array.isArray(local.features) && local.features.length > 0) {
-              resolvedFeatures = local.features;
+              } catch {}
+            }
+
+            // Parse payment methods
+            let resolvedPaymentMethods = ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete'];
+            if (Array.isArray(d.payment_methods) && d.payment_methods.length > 0) {
+              resolvedPaymentMethods = d.payment_methods;
+            } else if (typeof d.payment_methods === 'string') {
+              try {
+                const parsed = JSON.parse(d.payment_methods);
+                if (Array.isArray(parsed)) resolvedPaymentMethods = parsed;
+              } catch {}
+            }
+
+            // Parse pros / cons / faq
+            let resolvedPros: string[] = [];
+            if (Array.isArray(d.pros)) resolvedPros = d.pros;
+            else if (typeof d.pros === 'string') {
+              try { const p = JSON.parse(d.pros); if (Array.isArray(p)) resolvedPros = p; } catch {}
+            }
+
+            let resolvedCons: string[] = [];
+            if (Array.isArray(d.cons)) resolvedCons = d.cons;
+            else if (typeof d.cons === 'string') {
+              try { const c = JSON.parse(d.cons); if (Array.isArray(c)) resolvedCons = c; } catch {}
+            }
+
+            let resolvedFaq: SponsorFAQ[] = [];
+            if (Array.isArray(d.faq)) resolvedFaq = d.faq;
+            else if (typeof d.faq === 'string') {
+              try { const f = JSON.parse(d.faq); if (Array.isArray(f)) resolvedFaq = f; } catch {}
             }
 
             return {
@@ -683,33 +710,36 @@ export const db = {
               id: idStr,
               name: nameStr,
               slug: slugStr,
-              logo_url: d.logo_url || d.logo || local?.logo_url || '',
-              banner_url: d.banner_url || d.banner || local?.banner_url || '',
-              bonus_text: d.bonus_text || d.bonus || d.bonus_code || local?.bonus_text || '',
-              description: d.description || d.full_review || d.desc || local?.description || '',
-              short_description: d.short_description || d.short_desc || local?.short_description || '',
-              website_url: d.website_url || d.direct_url || d.link || d.url || local?.website_url || 'https://example.com',
-              button_text: d.button_text || d.btn_text || local?.button_text || 'SİTEYE GİT & KAZAN',
-              rating: Number(d.rating || d.score || local?.rating || 4.8),
+              logo_url: d.logo_url || d.logo || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=200&h=200&q=80',
+              banner_url: d.banner_url || d.banner || '',
+              bonus_text: d.bonus_text || d.bonus || d.bonus_code || '',
+              description: d.description || d.full_review || d.desc || '',
+              short_description: d.short_description || d.short_desc || '',
+              website_url: d.website_url || d.direct_url || d.link || d.url || 'https://example.com',
+              button_text: d.button_text || d.btn_text || 'SİTEYE GİT & KAZAN',
+              rating: Number(d.rating || d.score || 4.8),
               category: cat,
-              featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : (d.featured !== undefined ? Boolean(d.featured) : Boolean(local?.featured))),
-              verified: d.is_active !== false && (d.verified !== undefined ? d.verified !== false : (local?.verified !== false)),
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (local?.active !== undefined ? local.active : true),
-              sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (local?.sort_order || 0),
-              bonus_code: d.bonus_code !== undefined && d.bonus_code !== null && d.bonus_code !== '' ? d.bonus_code : (local?.bonus_code || ''),
-              bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null && d.bonus_headline !== '' ? d.bonus_headline : (local?.bonus_headline || ''),
-              badge_text: d.badge_text !== undefined && d.badge_text !== null && d.badge_text !== '' ? d.badge_text : (local?.badge_text || ''),
-              min_deposit: d.min_deposit !== undefined && d.min_deposit !== null && d.min_deposit !== '' ? d.min_deposit : (local?.min_deposit || '50 ₺'),
-              withdrawal_speed: d.withdrawal_speed !== undefined && d.withdrawal_speed !== null && d.withdrawal_speed !== '' ? d.withdrawal_speed : (local?.withdrawal_speed || '3 - 15 Dakika'),
-              license: d.license !== undefined && d.license !== null && d.license !== '' ? d.license : (local?.license || 'Curacao eGaming'),
-              rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null && d.rtp_rate !== '' ? d.rtp_rate : (local?.rtp_rate || '%97.8'),
-              online_players: d.online_players ? String(d.online_players) : (local?.online_players || ''),
-              live_support: d.live_support || local?.live_support || '7/24 Türkçe Canlı Destek',
-              payment_methods: Array.isArray(d.payment_methods) && d.payment_methods.length > 0
-                ? d.payment_methods
-                : (local?.payment_methods || ['Papara', 'Havale / EFT', 'Kripto (USDT)', 'Payfix', 'Kredi Kartı', 'Mefete']),
+              featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured)),
+              verified: d.is_active !== false && (d.verified !== undefined ? d.verified !== false : true),
+              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== undefined ? Boolean(d.active) : true),
+              sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : 0,
+              bonus_code: d.bonus_code !== undefined && d.bonus_code !== null ? d.bonus_code : '',
+              bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null ? d.bonus_headline : '',
+              badge_text: d.badge_text !== undefined && d.badge_text !== null ? d.badge_text : '',
+              min_deposit: d.min_deposit !== undefined && d.min_deposit !== null ? d.min_deposit : '50 ₺',
+              withdrawal_speed: d.withdrawal_speed !== undefined && d.withdrawal_speed !== null ? d.withdrawal_speed : '3 - 15 Dakika',
+              license: d.license !== undefined && d.license !== null ? d.license : 'Curacao eGaming',
+              rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null ? d.rtp_rate : '%97.8',
+              online_players: d.online_players ? String(d.online_players) : '',
+              live_support: d.live_support || '7/24 Türkçe Canlı Destek',
+              payment_methods: resolvedPaymentMethods,
               stats: resolvedStats,
               features: resolvedFeatures,
+              has_detail_page: d.has_detail_page !== undefined && d.has_detail_page !== null ? Boolean(d.has_detail_page) : true,
+              custom_review: d.custom_review || '',
+              pros: resolvedPros,
+              cons: resolvedCons,
+              faq: resolvedFaq,
             };
           }) as Sponsor[];
           const sorted = sortSponsors(mapped);
@@ -720,9 +750,8 @@ export const db = {
         console.warn('Supabase getSponsors error:', err);
       }
     }
-    const storedSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
-    const finalSponsors = (storedSponsors && storedSponsors.length > 0) ? storedSponsors : initialSponsors;
-    return sortSponsors(finalSponsors);
+    const storedSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
+    return sortSponsors(storedSponsors || []);
   },
 
   async getSponsorBySlug(slug: string): Promise<Sponsor | null> {
@@ -739,35 +768,34 @@ export const db = {
   },
 
   async saveSponsor(sponsor: Partial<Sponsor>): Promise<Sponsor> {
-    const sponsors = await this.getSponsors();
+    const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
     let saved: Sponsor;
     const cat = getSponsorCategory(sponsor);
 
     if (sponsor.id) {
-      const index = sponsors.findIndex((s) => s.id === sponsor.id);
+      const index = currentSponsors.findIndex((s) => s.id === sponsor.id);
       if (index !== -1) {
         saved = {
-          ...sponsors[index],
+          ...currentSponsors[index],
           ...sponsor,
           category: cat,
           featured: cat === 'vip' || Boolean(sponsor.featured),
-          sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors[index].sort_order,
+          sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : currentSponsors[index].sort_order,
           updated_at: new Date().toISOString(),
         } as Sponsor;
-        sponsors[index] = saved;
+        currentSponsors[index] = saved;
       } else {
         saved = {
           ...sponsor,
           id: sponsor.id,
           category: cat,
           featured: cat === 'vip' || Boolean(sponsor.featured),
-          sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors.length + 1,
+          sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : currentSponsors.length + 1,
           updated_at: new Date().toISOString(),
         } as Sponsor;
-        sponsors.push(saved);
+        currentSponsors.push(saved);
       }
     } else {
-      // Generate standard UUID or fallback
       let newId = '';
       try {
         newId = crypto.randomUUID();
@@ -790,7 +818,7 @@ export const db = {
         featured: cat === 'vip' || Boolean(sponsor.featured),
         verified: sponsor.verified !== false,
         active: sponsor.active !== false,
-        sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : sponsors.length + 1,
+        sort_order: typeof sponsor.sort_order === 'number' && !isNaN(sponsor.sort_order) ? sponsor.sort_order : currentSponsors.length + 1,
         bonus_code: sponsor.bonus_code || '',
         bonus_headline: sponsor.bonus_headline || '',
         badge_text: sponsor.badge_text || '',
@@ -810,192 +838,248 @@ export const db = {
           { id: `feat-${Date.now()}-1`, text: 'Anında Çekim İmkanı', sort_order: 1 },
           { id: `feat-${Date.now()}-2`, text: '7/24 Canlı Destek', sort_order: 2 },
         ],
+        pros: sponsor.pros || [],
+        cons: sponsor.cons || [],
+        faq: sponsor.faq || [],
+        has_detail_page: sponsor.has_detail_page !== false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      sponsors.push(saved);
+      currentSponsors.push(saved);
     }
 
-    const sortedList = sortSponsors(sponsors);
-    setStored(STORAGE_KEYS.SPONSORS, sortedList);
+    const sortedList = sortSponsors(currentSponsors);
+    setStored(STORAGE_KEYS.SPONSORS, sortedList, true);
 
-    // Remove from deleted list if re-added
-    const deletedList = getStored<string[]>(STORAGE_KEYS.DELETED_SPONSORS, []);
-    if (deletedList.includes(saved.id)) {
-      setStored(STORAGE_KEYS.DELETED_SPONSORS, deletedList.filter((x) => x !== saved.id), true);
+    // Prepare primary Supabase database payload
+    const fullSupabasePayload: any = {
+      name: saved.name,
+      slug: saved.slug,
+      logo_url: saved.logo_url,
+      banner_url: saved.banner_url || null,
+      description: saved.description || '',
+      short_description: saved.short_description || '',
+      website_url: saved.website_url,
+      direct_url: saved.website_url,
+      button_text: saved.button_text,
+      rating: saved.rating || 5.0,
+      category: saved.category || cat,
+      featured: saved.category === 'vip' || Boolean(saved.featured),
+      is_vip: saved.category === 'vip' || Boolean(saved.featured),
+      active: saved.active !== false,
+      is_active: saved.active !== false,
+      sort_order: saved.sort_order || 0,
+      bonus_code: saved.bonus_code || null,
+      bonus_headline: saved.bonus_headline || null,
+      badge_text: saved.badge_text || null,
+      min_deposit: saved.min_deposit || null,
+      withdrawal_speed: saved.withdrawal_speed || null,
+      license: saved.license || null,
+      rtp_rate: saved.rtp_rate || null,
+      online_players: saved.online_players ? String(saved.online_players) : null,
+      live_support: saved.live_support || '7/24 Türkçe Canlı Destek',
+      payment_methods: saved.payment_methods || [],
+      stats: saved.stats || [],
+      features: saved.features || [],
+      pros: saved.pros || [],
+      cons: saved.cons || [],
+      faq: saved.faq || [],
+      has_detail_page: saved.has_detail_page !== false,
+      updated_at: new Date().toISOString(),
+    };
+
+    // 1. Direct Supabase Client Save (Authoritative)
+    if (isSupabaseReady()) {
+      try {
+        const isExistingId = saved.id && !saved.id.startsWith('sp-');
+        if (isExistingId) {
+          // Update existing row
+          const { error: updateErr } = await supabase
+            .from('sponsors')
+            .update(fullSupabasePayload)
+            .eq('id', saved.id);
+
+          if (updateErr) {
+            console.warn('Supabase full update error, trying base columns:', updateErr.message);
+            await supabase.from('sponsors').update({
+              name: saved.name,
+              slug: saved.slug,
+              logo_url: saved.logo_url,
+              banner_url: saved.banner_url || null,
+              direct_url: saved.website_url,
+              website_url: saved.website_url,
+              short_desc: saved.short_description,
+              full_review: saved.description,
+              category: saved.category,
+              rating: saved.rating,
+              is_active: saved.active !== false,
+              sort_order: saved.sort_order,
+            }).eq('id', saved.id);
+          }
+        } else {
+          // Check if row already exists by slug
+          const { data: existingRows } = await supabase
+            .from('sponsors')
+            .select('id')
+            .eq('slug', saved.slug)
+            .limit(1);
+
+          if (existingRows && existingRows.length > 0) {
+            saved.id = String(existingRows[0].id);
+            await supabase.from('sponsors').update(fullSupabasePayload).eq('id', existingRows[0].id);
+          } else {
+            // Fresh insert: ensure ID is provided in case table has "id text primary key" without default
+            const freshId = (saved.id && !saved.id.startsWith('sp-'))
+              ? saved.id
+              : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sp-${Date.now()}`);
+
+            const insertPayload = { ...fullSupabasePayload, id: freshId };
+
+            const { data: inserted, error: insertErr } = await supabase
+              .from('sponsors')
+              .insert(insertPayload)
+              .select('id');
+
+            if (!insertErr && inserted && inserted.length > 0) {
+              saved.id = String(inserted[0].id);
+            } else if (insertErr) {
+              console.warn('Supabase full insert error, analyzing cause:', insertErr.message);
+
+              // If id type error (e.g. bigint autoincrement), retry without id
+              const shouldOmitId = insertErr.message.includes('invalid input syntax for type') || insertErr.message.includes('bigint');
+
+              const basePayload: any = {
+                ...(!shouldOmitId ? { id: freshId } : {}),
+                name: saved.name,
+                slug: saved.slug,
+                logo_url: saved.logo_url,
+                banner_url: saved.banner_url || null,
+                direct_url: saved.website_url,
+                website_url: saved.website_url,
+                short_desc: saved.short_description,
+                full_review: saved.description,
+                category: saved.category,
+                rating: saved.rating,
+                is_active: saved.active !== false,
+                sort_order: saved.sort_order,
+              };
+
+              const { data: baseInserted, error: baseInsertErr } = await supabase
+                .from('sponsors')
+                .insert(basePayload)
+                .select('id');
+
+              if (!baseInsertErr && baseInserted && baseInserted.length > 0) {
+                saved.id = String(baseInserted[0].id);
+              } else if (baseInsertErr) {
+                console.error('Supabase base insert failed:', baseInsertErr);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Supabase direct sponsor persistence exception:', err);
+      }
     }
 
-    // 1. Server-Side Authoritative Save (bypasses RLS issues & purges server cache)
+    // 2. Server-Side Cache Synchronization
     try {
-      const resp = await fetch('/api/sponsors/save', {
+      await fetch('/api/sponsors/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...saved, isNew: !sponsor.id }),
       });
-      if (resp.ok) {
-        const json = await resp.json();
-        if (json.sponsor) {
-          saved = { ...saved, ...json.sponsor };
-          const idx = sponsors.findIndex(
-            (s) => s.id === saved.id || s.slug === saved.slug || (s.name && saved.name && s.name.toLowerCase().trim() === saved.name.toLowerCase().trim())
-          );
-          if (idx !== -1) {
-            sponsors[idx] = saved;
-          } else {
-            sponsors.push(saved);
-          }
-          setStored(STORAGE_KEYS.SPONSORS, sortSponsors(sponsors));
-        }
-      }
     } catch (e) {
       console.warn('Server /api/sponsors/save notice:', e);
     }
 
-    // 2. Direct Supabase Client Save
-    if (isSupabaseReady()) {
-      try {
-        const payload: any = {
-          name: saved.name,
-          slug: saved.slug,
-          logo_url: saved.logo_url,
-          banner_url: saved.banner_url || null,
-          description: saved.description || '',
-          short_description: saved.short_description || '',
-          website_url: saved.website_url,
-          button_text: saved.button_text,
-          rating: saved.rating || 5.0,
-          category: saved.category || cat,
-          featured: saved.category === 'vip' || Boolean(saved.featured),
-          is_vip: saved.category === 'vip' || Boolean(saved.featured),
-          is_active: saved.active !== false,
-          sort_order: saved.sort_order || 0,
-          bonus_code: saved.bonus_code || null,
-          bonus_headline: saved.bonus_headline || null,
-          badge_text: saved.badge_text || null,
-          min_deposit: saved.min_deposit || null,
-          withdrawal_speed: saved.withdrawal_speed || null,
-          license: saved.license || null,
-          rtp_rate: saved.rtp_rate || null,
-          online_players: saved.online_players ? String(saved.online_players) : null,
-          live_support: saved.live_support || '7/24 Türkçe Canlı Destek',
-          payment_methods: saved.payment_methods || [],
-          stats: saved.stats || [],
-          features: saved.features || [],
-          updated_at: new Date().toISOString(),
-        };
-
-        if (saved.id && !saved.id.startsWith('sp-') && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(saved.id)) {
-          payload.id = saved.id;
-        }
-
-        const { error } = await supabase.from('sponsors').upsert(payload);
-        if (error) {
-          console.warn('Supabase upsert warning, trying fallback:', error.message);
-          // Fallback with legacy column aliases
-          await supabase.from('sponsors').upsert({
-            name: saved.name,
-            slug: saved.slug,
-            logo_url: saved.logo_url,
-            direct_url: saved.website_url,
-            short_desc: saved.short_description,
-            full_review: saved.description,
-            category: saved.category,
-            rating: saved.rating,
-          });
-        }
-      } catch (err) {
-        console.warn('Supabase saveSponsor error:', err);
-      }
-    }
-
-    await invalidateServerCache();
+    // Invalidate caches & notify UI
+    invalidateServerCache().catch(() => {});
     broadcastChange(STORAGE_KEYS.SPONSORS);
 
-    await this.logAdminAction(
+    this.logAdminAction(
       sponsor.id ? 'Sponsor Güncellendi' : 'Yeni Sponsor Eklendi',
       'sponsor',
       saved.id,
       { name: saved.name, slug: saved.slug, category: saved.category, sort_order: saved.sort_order }
-    );
+    ).catch(() => {});
+
     return saved;
   },
 
   async deleteSponsor(id: string): Promise<void> {
-    const sponsors = await this.getSponsors();
-    const target = sponsors.find((s) => s.id === id);
-    const filtered = sponsors.filter((s) => s.id !== id);
+    const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+    const target = currentSponsors.find((s) => s.id === id);
+    const filtered = currentSponsors.filter((s) => s.id !== id);
     const sorted = sortSponsors(filtered);
-    setStored(STORAGE_KEYS.SPONSORS, sorted);
+    setStored(STORAGE_KEYS.SPONSORS, sorted, true);
 
-    // Track as deleted so remote preloads don't resurrect it
-    const deletedList = getStored<string[]>(STORAGE_KEYS.DELETED_SPONSORS, []);
-    if (!deletedList.includes(id)) {
-      setStored(STORAGE_KEYS.DELETED_SPONSORS, [...deletedList, id], true);
-    }
+    const deletePromises: Promise<any>[] = [];
 
-    // 1. Server API delete
-    try {
-      await fetch('/api/sponsors/delete', {
+    deletePromises.push(
+      fetch('/api/sponsors/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
-      });
-    } catch {
-      // ignore
-    }
+      }).catch(() => {})
+    );
 
-    // 2. Direct Supabase delete
     if (isSupabaseReady()) {
-      try {
-        await supabase.from('sponsors').delete().eq('id', id);
-      } catch (err) {
-        console.warn('Supabase deleteSponsor error:', err);
-      }
+      deletePromises.push(
+        (async () => {
+          try {
+            await supabase.from('sponsors').delete().eq('id', id);
+          } catch (err) {
+            console.warn('Supabase delete error:', err);
+          }
+        })()
+      );
     }
 
-    await invalidateServerCache();
+    await Promise.allSettled(deletePromises);
+    invalidateServerCache().catch(() => {});
     broadcastChange(STORAGE_KEYS.SPONSORS);
-    await this.logAdminAction('Sponsor Silindi', 'sponsor', id, { name: target?.name });
+
+    this.logAdminAction('Sponsor Silindi', 'sponsor', id, { name: target?.name }).catch(() => {});
   },
 
-  async reorderSponsors(orderedIds: string[]): Promise<void> {
-    const sponsors = await this.getSponsors();
-    const map = new Map<string, Sponsor>(sponsors.map((s) => [s.id, s]));
+  async reorderSponsors(orderedIds: string[]): Promise<Sponsor[]> {
+    const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+    const map = new Map<string, Sponsor>(currentSponsors.map((s) => [s.id, s]));
     const updated: Sponsor[] = [];
-    
+
     orderedIds.forEach((id, index) => {
       const item = map.get(id);
       if (item) {
-        updated.push({ ...item, sort_order: index + 1 });
+        updated.push({ ...item, sort_order: index + 1, updated_at: new Date().toISOString() });
       }
     });
 
-    sponsors.forEach((s) => {
+    currentSponsors.forEach((s) => {
       if (!orderedIds.includes(s.id)) {
-        updated.push({ ...s, sort_order: updated.length + 1 });
+        updated.push({ ...s, sort_order: updated.length + 1, updated_at: new Date().toISOString() });
       }
     });
 
     const sorted = sortSponsors(updated);
-    setStored(STORAGE_KEYS.SPONSORS, sorted);
+    setStored(STORAGE_KEYS.SPONSORS, sorted, true);
 
     if (isSupabaseReady()) {
-      try {
-        for (const sp of sorted) {
-          await supabase.from('sponsors').update({ sort_order: sp.sort_order }).eq('id', sp.id);
-        }
-      } catch (err) {
-        console.warn('Supabase reorderSponsors error:', err);
-      }
+      Promise.allSettled(
+        sorted.map((sp) =>
+          supabase.from('sponsors').update({ sort_order: sp.sort_order, updated_at: new Date().toISOString() }).eq('id', sp.id)
+        )
+      ).catch(() => {});
     }
 
-    broadcastChange();
-    await invalidateServerCache();
+    broadcastChange(STORAGE_KEYS.SPONSORS);
+    invalidateServerCache().catch(() => {});
+    return sorted;
   },
 
   async moveSponsorOrder(id: string, direction: 'up' | 'down'): Promise<Sponsor[]> {
-    const sponsors = await this.getSponsors();
-    const sorted = sortSponsors(sponsors);
+    const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+    const sorted = sortSponsors(currentSponsors);
     const index = sorted.findIndex((s) => s.id === id);
     if (index === -1) return sorted;
 
@@ -1005,114 +1089,125 @@ export const db = {
     const currentItem = sorted[index];
     const targetItem = sorted[targetIndex];
 
-    // Swap items in sorted array
     sorted[index] = targetItem;
     sorted[targetIndex] = currentItem;
 
-    // Renumber sequential sort_orders (1..N)
     const updated = sorted.map((sp, idx) => ({
       ...sp,
       sort_order: idx + 1,
       updated_at: new Date().toISOString(),
     }));
 
-    setStored(STORAGE_KEYS.SPONSORS, updated);
+    setStored(STORAGE_KEYS.SPONSORS, updated, true);
 
     if (isSupabaseReady()) {
-      try {
-        for (const item of updated) {
-          await supabase.from('sponsors').update({ sort_order: item.sort_order }).eq('id', item.id);
-        }
-      } catch (err) {
-        console.warn('Supabase moveSponsorOrder error:', err);
-      }
+      Promise.allSettled([
+        supabase.from('sponsors').update({ sort_order: updated[index].sort_order }).eq('id', updated[index].id),
+        supabase.from('sponsors').update({ sort_order: updated[targetIndex].sort_order }).eq('id', updated[targetIndex].id),
+      ]).catch(() => {});
     }
 
-    broadcastChange();
-    await invalidateServerCache();
+    broadcastChange(STORAGE_KEYS.SPONSORS);
+    invalidateServerCache().catch(() => {});
     return updated;
   },
 
   async setSponsorSortOrder(id: string, newOrder: number): Promise<Sponsor[]> {
-    const sponsors = await this.getSponsors();
-    const target = sponsors.find((s) => s.id === id);
-    if (!target) return sponsors;
+    const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+    const target = currentSponsors.find((s) => s.id === id);
+    if (!target) return currentSponsors;
 
     target.sort_order = Math.max(1, Number(newOrder) || 1);
     target.updated_at = new Date().toISOString();
 
-    const sorted = sortSponsors(sponsors);
-    // Renumber sequentially
+    const sorted = sortSponsors(currentSponsors);
     const updated = sorted.map((sp, idx) => ({
       ...sp,
       sort_order: idx + 1,
+      updated_at: new Date().toISOString(),
     }));
 
-    setStored(STORAGE_KEYS.SPONSORS, updated);
+    setStored(STORAGE_KEYS.SPONSORS, updated, true);
 
     if (isSupabaseReady()) {
-      try {
-        for (const item of updated) {
-          await supabase.from('sponsors').update({ sort_order: item.sort_order }).eq('id', item.id);
-        }
-      } catch (err) {
-        console.warn('Supabase setSponsorSortOrder error:', err);
-      }
+      Promise.allSettled(
+        updated.map((item) =>
+          supabase.from('sponsors').update({ sort_order: item.sort_order }).eq('id', item.id)
+        )
+      ).catch(() => {});
     }
 
-    broadcastChange();
-    await invalidateServerCache();
+    broadcastChange(STORAGE_KEYS.SPONSORS);
+    invalidateServerCache().catch(() => {});
     return updated;
   },
 
   async toggleSponsorActive(id: string, active: boolean): Promise<Sponsor | null> {
-    const sponsors = await this.getSponsors();
-    const index = sponsors.findIndex((s) => s.id === id);
+    const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+    const index = currentSponsors.findIndex((s) => s.id === id);
     if (index === -1) return null;
-    sponsors[index] = { ...sponsors[index], active, updated_at: new Date().toISOString() };
-    setStored(STORAGE_KEYS.SPONSORS, sponsors);
+
+    currentSponsors[index] = { ...currentSponsors[index], active, updated_at: new Date().toISOString() };
+    setStored(STORAGE_KEYS.SPONSORS, currentSponsors, true);
 
     if (isSupabaseReady()) {
-      try {
-        await supabase.from('sponsors').update({ is_active: active }).eq('id', id);
-      } catch (err) {
-        console.warn('Supabase toggleSponsorActive error:', err);
-      }
+      (async () => {
+        try {
+          await supabase.from('sponsors').update({ is_active: active, active }).eq('id', id);
+        } catch (e) {
+          console.warn('Supabase toggleSponsorActive error:', e);
+        }
+      })();
     }
 
-    await invalidateServerCache();
-    await this.logAdminAction(
+    fetch('/api/sponsors/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, active, is_active: active }),
+    }).catch(() => {});
+
+    broadcastChange(STORAGE_KEYS.SPONSORS);
+    invalidateServerCache().catch(() => {});
+
+    this.logAdminAction(
       active ? 'Sponsor Aktifleştirildi' : 'Sponsor Pasife Alındı',
       'sponsor',
       id,
-      { name: sponsors[index].name, active }
-    );
-    return sponsors[index];
+      { name: currentSponsors[index].name, active }
+    ).catch(() => {});
+
+    return currentSponsors[index];
   },
 
   async toggleSponsorFeatured(id: string, featured: boolean): Promise<Sponsor | null> {
-    const sponsors = await this.getSponsors();
-    const index = sponsors.findIndex((s) => s.id === id);
+    const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, initialSponsors);
+    const index = currentSponsors.findIndex((s) => s.id === id);
     if (index === -1) return null;
-    sponsors[index] = { ...sponsors[index], featured, updated_at: new Date().toISOString() };
-    setStored(STORAGE_KEYS.SPONSORS, sponsors);
+
+    currentSponsors[index] = { ...currentSponsors[index], featured, updated_at: new Date().toISOString() };
+    setStored(STORAGE_KEYS.SPONSORS, currentSponsors, true);
 
     if (isSupabaseReady()) {
-      try {
-        await supabase.from('sponsors').update({ is_vip: featured }).eq('id', id);
-      } catch (err) {
-        console.warn('Supabase toggleSponsorFeatured error:', err);
-      }
+      (async () => {
+        try {
+          await supabase.from('sponsors').update({ is_vip: featured, featured }).eq('id', id);
+        } catch (e) {
+          console.warn('Supabase toggleSponsorFeatured error:', e);
+        }
+      })();
     }
 
-    await invalidateServerCache();
-    await this.logAdminAction(
+    broadcastChange(STORAGE_KEYS.SPONSORS);
+    invalidateServerCache().catch(() => {});
+
+    this.logAdminAction(
       featured ? 'Sponsor Öne Çıkarıldı (VIP)' : 'Sponsor Öne Çıkarma Kaldırıldı',
       'sponsor',
       id,
-      { name: sponsors[index].name, featured }
-    );
-    return sponsors[index];
+      { name: currentSponsors[index].name, featured }
+    ).catch(() => {});
+
+    return currentSponsors[index];
   },
 
   // --- Hero Slides (Database Authoritative) ---
@@ -2226,10 +2321,18 @@ export const db = {
     }
 
     const entries = await this.getGiveawayEntries();
-    const cleanUsername = (username || 'Kullanıcı').trim();
-    const existing = entries.find(
-      (e) => e.giveaway_id === giveawayId && (e.user_id === userId || (cleanUsername && e.username?.toLowerCase() === cleanUsername.toLowerCase()))
-    );
+    const cleanUsername = String(username || 'Kullanıcı').trim();
+    
+    // Only check exact user_id match or non-generic username match
+    const existing = entries.find((e) => {
+      if (e.giveaway_id !== giveawayId) return false;
+      if (e.user_id && userId && e.user_id === userId) return true;
+      if (cleanUsername && cleanUsername.toLowerCase() !== 'kullanıcı' && e.username) {
+        return e.username.toLowerCase() === cleanUsername.toLowerCase();
+      }
+      return false;
+    });
+
     if (existing) {
       return { success: false, message: 'Bu çekilişe zaten katıldınız!' };
     }
@@ -2262,6 +2365,15 @@ export const db = {
         }
         if (json.expired) {
           return { success: false, message: 'Bu çekilişin katılım süresi dolmuştur. Katılım sağlanamaz.' };
+        }
+        if (json.message) {
+          await invalidateServerCache();
+          window.dispatchEvent(
+            new CustomEvent('sponsorhub_db_change', {
+              detail: { key: 'sponsorhub_giveaways_v1' },
+            })
+          );
+          return { success: true, message: json.message };
         }
       } else {
         const errJson = await res.json().catch(() => ({}));
@@ -3023,7 +3135,7 @@ export const db = {
 
     const logs = getStored<AdminLog[]>(STORAGE_KEYS.ADMIN_LOGS, []);
     logs.unshift(newLog);
-    setStored(STORAGE_KEYS.ADMIN_LOGS, logs.slice(0, 200));
+    setStored(STORAGE_KEYS.ADMIN_LOGS, logs.slice(0, 20));
 
     if (isSupabaseReady()) {
       try {

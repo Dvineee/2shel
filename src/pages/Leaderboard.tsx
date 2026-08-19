@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../lib/db';
 import { Profile } from '../types';
-import { Trophy, Crown, Medal, Flame, Coins, ShieldCheck } from 'lucide-react';
+import { Trophy, Crown, Medal, Flame, Coins, ShieldCheck, User } from 'lucide-react';
 import { formatCoin } from '../lib/utils';
+import { useData } from '../context/DataContext';
 
 export const LeaderboardPage: React.FC = () => {
+  const { settings } = useData();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,7 +33,7 @@ export const LeaderboardPage: React.FC = () => {
           EN ÇOK COIN SAHİBİ OYUNCULAR
         </div>
         <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-          SponsorHub Leaderboard
+          {settings.site_name || 'SHELBYONLINE'} Liderlik Tablosu
         </h1>
         <p className="mt-2 text-xs sm:text-sm text-slate-300 max-w-xl mx-auto">
           Şans çarkını çevirerek ve etkinliklere katılarak en çok coin toplayan haftanın VIP şampiyonları.
@@ -55,6 +57,13 @@ export const LeaderboardPage: React.FC = () => {
               <h3 className="text-base font-bold text-white truncate max-w-full">
                 {top3[1].username}
               </h3>
+              {top3[1].role === 'admin' && (
+                <div className="mt-1">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                    <ShieldCheck className="w-2.5 h-2.5 text-purple-400" /> Admin
+                  </span>
+                </div>
+              )}
               <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-violet-950/60 border border-violet-800/40 text-amber-300 font-black text-sm">
                 <Coins className="w-4 h-4 text-amber-400" />
                 <span>{formatCoin(top3[1].coin_balance)} Coin</span>
@@ -79,6 +88,13 @@ export const LeaderboardPage: React.FC = () => {
               <h3 className="text-lg font-black text-white truncate max-w-full">
                 {top3[0].username}
               </h3>
+              {top3[0].role === 'admin' && (
+                <div className="mt-1">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                    <ShieldCheck className="w-2.5 h-2.5 text-purple-400" /> Admin
+                  </span>
+                </div>
+              )}
               <div className="mt-2 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 font-black text-base">
                 <Coins className="w-5 h-5 text-amber-400" />
                 <span>{formatCoin(top3[0].coin_balance)} Coin</span>
@@ -100,6 +116,13 @@ export const LeaderboardPage: React.FC = () => {
               <h3 className="text-base font-bold text-white truncate max-w-full">
                 {top3[2].username}
               </h3>
+              {top3[2].role === 'admin' && (
+                <div className="mt-1">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                    <ShieldCheck className="w-2.5 h-2.5 text-purple-400" /> Admin
+                  </span>
+                </div>
+              )}
               <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-violet-950/60 border border-violet-800/40 text-amber-300 font-black text-sm">
                 <Coins className="w-4 h-4 text-amber-400" />
                 <span>{formatCoin(top3[2].coin_balance)} Coin</span>
@@ -143,9 +166,16 @@ export const LeaderboardPage: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-5 py-4">
-                    <span className="uppercase text-[10px] font-bold px-2 py-0.5 rounded-md bg-violet-500/20 text-violet-300 border border-violet-500/30">
-                      {p.role}
-                    </span>
+                    {p.role === 'admin' ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm">
+                        <ShieldCheck className="w-3 h-3 text-purple-400" />
+                        Admin
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center text-[11px] font-medium px-2.5 py-0.5 rounded-lg bg-slate-800/80 text-slate-300 border border-slate-700/50">
+                        Kullanıcı
+                      </span>
+                    )}
                   </td>
                   <td className="px-5 py-4 text-right font-black text-amber-300 text-sm">
                     {formatCoin(p.coin_balance)} COIN
