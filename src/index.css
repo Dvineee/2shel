@@ -150,23 +150,133 @@
   }
 }
 
-@keyframes circleRain {
+/* Rising Glowing Neon Plasma Embers & Sparks */
+@keyframes emberRise {
   0% {
-    transform: translateY(-15px) scale(0.6);
+    transform: translateY(110%) translateX(0px) scale(0.4);
     opacity: 0;
   }
-  25% {
-    opacity: 0.6;
-    transform: translateY(25px) scale(1);
+  15% {
+    opacity: 0.85;
   }
-  70% {
-    opacity: 0.55;
-    transform: translateY(90px) scale(0.9);
+  50% {
+    transform: translateY(50%) translateX(6px) scale(1.1);
+    opacity: 0.95;
+  }
+  80% {
+    opacity: 0.6;
+    transform: translateY(10%) translateX(-4px) scale(0.9);
   }
   100% {
-    transform: translateY(145px) scale(0.4);
+    transform: translateY(-20%) translateX(3px) scale(0.3);
     opacity: 0;
   }
+}
+
+/* Diamond Star Sparkle / Glint */
+@keyframes starGlint {
+  0%, 100% {
+    transform: scale(0) rotate(0deg);
+    opacity: 0;
+  }
+  40%, 60% {
+    transform: scale(1.2) rotate(90deg);
+    opacity: 0.95;
+  }
+}
+
+/* Expanding Neon Energy Pulse Wave (Accelerates as it reaches medium size) */
+@keyframes energyPulseRing {
+  0% {
+    transform: scale(0.25);
+    opacity: 0.9;
+  }
+  30% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  55% {
+    transform: scale(1.15);
+    opacity: 0.4;
+  }
+  80% {
+    transform: scale(1.7);
+    opacity: 0.15;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.animate-ember-rise {
+  animation: emberRise ease-in-out infinite;
+}
+
+.animate-star-glint {
+  animation: starGlint ease-in-out infinite;
+}
+
+.animate-energy-ring {
+  animation: energyPulseRing 2.6s cubic-bezier(0.2, 0.55, 0.25, 1) infinite;
+}
+
+/* Atmospheric Smoke & Fog Drifts */
+@keyframes smokeDrift1 {
+  0% {
+    transform: translate(-10%, -10%) scale(1) rotate(0deg);
+    opacity: 0.45;
+  }
+  33% {
+    transform: translate(8%, -4%) scale(1.18) rotate(12deg);
+    opacity: 0.75;
+  }
+  66% {
+    transform: translate(-4%, 8%) scale(1.08) rotate(-8deg);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate(-10%, -10%) scale(1) rotate(0deg);
+    opacity: 0.45;
+  }
+}
+
+@keyframes smokeDrift2 {
+  0% {
+    transform: translate(8%, 10%) scale(1.1) rotate(0deg);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate(-12%, -8%) scale(1.28) rotate(-15deg);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(8%, 10%) scale(1.1) rotate(0deg);
+    opacity: 0.5;
+  }
+}
+
+@keyframes smokeDrift3 {
+  0%, 100% {
+    transform: scale(0.95) rotate(0deg);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 0.7;
+  }
+}
+
+.animate-smoke-1 {
+  animation: smokeDrift1 12s ease-in-out infinite;
+}
+
+.animate-smoke-2 {
+  animation: smokeDrift2 16s ease-in-out infinite;
+}
+
+.animate-smoke-3 {
+  animation: smokeDrift3 20s linear infinite;
 }
 
 .animate-float {

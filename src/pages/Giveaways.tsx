@@ -92,6 +92,16 @@ export const GiveawaysPage: React.FC = () => {
     checkUserEntries();
   }, [user, giveaways]);
 
+  const [, setTick] = useState(0);
+
+  // Live timer tick so countdown updates continuously without page refresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick((prev) => prev + 1);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && selectedGiveawayForResults) {
@@ -103,9 +113,12 @@ export const GiveawaysPage: React.FC = () => {
   }, [selectedGiveawayForResults]);
 
   const isGiveawayExpired = (g: Giveaway) => {
-    if (g.is_completed) return true;
+    // If it is explicitly completed and a winner has been announced, it's concluded
+    if (g.is_completed && g.winner_username) return true;
     if (!g.end_at) return false;
-    return new Date(g.end_at).getTime() <= Date.now();
+    const endMs = new Date(g.end_at).getTime();
+    if (isNaN(endMs)) return false;
+    return endMs <= Date.now();
   };
 
   const handleJoin = async (giveawayId: string) => {

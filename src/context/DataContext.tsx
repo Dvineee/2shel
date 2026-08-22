@@ -228,6 +228,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [loadData]);
 
+  // 5. Dynamically synchronize Browser Favicon & Title from site settings
+  useEffect(() => {
+    const iconUrl = settings.favicon_url || settings.logo_url;
+    if (iconUrl) {
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      link.href = iconUrl;
+
+      let appleLink = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement;
+      if (!appleLink) {
+        appleLink = document.createElement('link');
+        appleLink.rel = 'apple-touch-icon';
+        document.head.appendChild(appleLink);
+      }
+      appleLink.href = iconUrl;
+    }
+
+    if (settings.site_title) {
+      document.title = settings.site_title;
+    }
+  }, [settings.favicon_url, settings.logo_url, settings.site_title]);
+
   const updateSponsorsDirectly = useCallback((newSponsors: Sponsor[]) => {
     setSponsors(sortSponsors(newSponsors));
   }, []);
@@ -247,11 +273,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const sortedAllSponsors = sortSponsors(sponsors);
-  const activeSponsors = sortSponsors(sortedAllSponsors.filter((s) => s.active !== false));
+  const isItemActive = (item: any) => {
+    if (!item) return false;
+    if (item.is_active === false || item.is_active === 'false' || item.is_active === 0) return false;
+    if (item.active === false || item.active === 'false' || item.active === 0) return false;
+    return true;
+  };
+  const activeSponsors = sortSponsors(sortedAllSponsors.filter(isItemActive));
   const mainSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'main');
   const vipSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'vip');
   const trustedSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'trusted');
-  const featuredSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'vip' || s.featured);
+  const featuredSponsors = activeSponsors.filter((s) => getSponsorCategory(s) === 'vip' || s.featured || s.is_vip);
   const activeBanners = banners.filter((b) => b.active !== false);
 
   const topBanners = activeBanners.filter(

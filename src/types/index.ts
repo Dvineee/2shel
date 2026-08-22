@@ -67,6 +67,8 @@ export interface Sponsor {
   is_vip?: boolean;
   verified: boolean;
   active: boolean;
+  is_active?: boolean;
+  is_popular?: boolean;
   has_detail_page?: boolean;
   sort_order: number;
   category?: SponsorCategory;
@@ -260,7 +262,15 @@ export interface PageControlItem {
 export interface SiteSettings {
   site_name: string;
   site_title?: string;
+  meta_description?: string;
   site_description?: string;
+  og_title?: string;
+  og_description?: string;
+  og_image?: string;
+  og_url?: string;
+  og_site_name?: string;
+  favicon_url?: string;
+  twitter_card?: string;
   logo_text?: string;
   logo_tagline?: string;
   logo_url?: string;
@@ -318,3 +328,77 @@ export interface AdminLog {
   ip_address?: string;
   created_at: string;
 }
+
+export type DeviceCategory = 'mobile' | 'desktop' | 'tablet' | 'bot';
+
+export interface VisitorLog {
+  id: string;
+  session_id: string;
+  visitor_id: string;
+  user_id?: string | null;
+  username?: string | null;
+  is_authenticated?: boolean;
+  device_type: DeviceCategory;
+  os: string;
+  os_version?: string;
+  browser: string;
+  browser_version?: string;
+  screen_resolution?: string;
+  ip_address?: string;
+  path: string;
+  page_title?: string;
+  referrer?: string;
+  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'heartbeat' | 'other';
+  action_name?: string;
+  details?: Record<string, any>;
+  duration_seconds?: number;
+  is_online?: boolean;
+  last_seen_at?: string;
+  created_at: string;
+}
+
+export interface DailyVisitorLog {
+  date: string; // YYYY-MM-DD
+  unique_visitors: number;
+  total_page_views: number;
+  total_events: number;
+  mobile_count: number;
+  desktop_count: number;
+  tablet_count: number;
+  bot_count: number;
+  authenticated_users: number;
+  top_page?: string;
+  top_page_views?: number;
+  peak_hour?: string;
+  updated_at?: string;
+}
+
+export interface VisitorStats {
+  total_events: number;
+  all_time_total_events?: number;
+  time_range?: string;
+  total_unique_visitors: number;
+  total_page_views: number;
+  live_active_visitors: number;
+  today_unique_visitors?: number;
+  today_page_views?: number;
+  yesterday_unique_visitors?: number;
+  daily_average_visitors?: number;
+  peak_day?: { date: string; visitors: number };
+  daily_history?: DailyVisitorLog[];
+  device_breakdown: {
+    mobile_count: number;
+    mobile_percent: number;
+    desktop_count: number;
+    desktop_percent: number;
+    tablet_count: number;
+    tablet_percent: number;
+    bot_count: number;
+    bot_percent: number;
+  };
+  os_breakdown: { name: string; count: number; percent: number }[];
+  browser_breakdown: { name: string; count: number; percent: number }[];
+  top_pages: { path: string; count: number }[];
+  action_breakdown: { action: string; count: number }[];
+}
+

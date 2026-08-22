@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Profile, UserRole, TelegramAuthUser } from '../types';
 import { db } from '../lib/db';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { activityTracker } from '../lib/activityTracker';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -33,12 +34,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (storedProfile) {
         const parsed = JSON.parse(storedProfile);
         if (parsed && parsed.id) {
-          const isKajju =
-            parsed.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
-            parsed.username?.toLowerCase().replace('@', '') === 'kajju66';
-          if (isKajju && parsed.role !== 'super_admin') {
-            parsed.role = 'super_admin';
-          }
           return parsed;
         }
       }
@@ -47,12 +42,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const cached = db.getCachedProfiles();
         const matched = cached.find((p) => p.id === storedId);
         if (matched) {
-          const isKajju =
-            matched.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
-            matched.username?.toLowerCase().replace('@', '') === 'kajju66';
-          if (isKajju && matched.role !== 'super_admin') {
-            matched.role = 'super_admin';
-          }
           return matched;
         }
       }
@@ -77,12 +66,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserState(newProfile);
     if (newProfile) {
       try {
-        const isKajju =
-          newProfile.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
-          newProfile.username?.toLowerCase().replace('@', '') === 'kajju66';
-        if (isKajju && newProfile.role !== 'super_admin') {
-          newProfile.role = 'super_admin';
-        }
         localStorage.setItem(CURRENT_USER_KEY, newProfile.id);
         localStorage.setItem(CURRENT_USER_PROFILE_KEY, JSON.stringify(newProfile));
       } catch {}
@@ -111,21 +94,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      // Check stored user ID from Supabase profiles
+      // Check stored user ID against authentic database profiles
       const storedId = localStorage.getItem(CURRENT_USER_KEY) || localStorage.getItem(LEGACY_USER_KEY);
       if (storedId) {
         const profiles = await db.getProfiles();
         const matched = profiles.find((p) => p.id === storedId);
 
         if (matched) {
-          const isKajju =
-            matched.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
-            matched.username.toLowerCase().replace('@', '') === 'kajju66';
-          if (isKajju && matched.role !== 'super_admin') {
-            matched.role = 'super_admin';
-            db.saveProfile(matched).catch(() => {});
-          }
           setUser(matched);
+
+          // Automatic background sync on every login/app load: Keep Telegram profile and avatar 100% updated
+          const tgId = matched.telegram_id || (matched.id.startsWith('tg-') ? matched.id.replace('tg-', '') : '');
+          if (tgId) {
+            fetch('/api/telegram/sync-profile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                telegram_id: tgId,
+                username: matched.telegram_username,
+              }),
+            })
+              .then((res) => res.json())
+              .then((data) => {
+                if (data && data.success && data.photo_url && data.photo_url !== matched.avatar_url) {
+                  db.saveProfile({
+                    ...matched,
+                    avatar_url: data.photo_url,
+                    telegram_photo_url: data.photo_url,
+                    telegram_username: data.telegram_username || matched.telegram_username,
+                  }).then((fresh) => {
+                    setUserState(fresh);
+                  });
+                }
+              })
+              .catch(() => {});
+          }
         } else {
           setUser(null);
         }
@@ -133,7 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
       }
     } catch (err) {
-      console.error('Error loading user auth from Supabase:', err);
+      console.error('Error loading user auth from database:', err);
     } finally {
       isLoadingUserRef.current = false;
       setLoading(false);
@@ -164,7 +167,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const profiles = await db.getProfiles();
       const search = email.trim().toLowerCase().replace('@', '');
-      const isKajju = search === 'kajju66';
 
       const found = profiles.find(
         (p) =>
@@ -175,23 +177,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
 
       if (found) {
-        if (isKajju && found.role !== 'super_admin') {
-          found.role = 'super_admin';
-          await db.saveProfile(found);
-        }
         setUser(found);
         localStorage.setItem(CURRENT_USER_KEY, found.id);
         toast.success(`Hoş geldiniz, ${found.username}!`);
         setLoading(false);
         return true;
       } else {
-        // Create profile if not found
+        // Create standard user profile (strictly role: 'user')
         const newProfile = await db.saveProfile({
           username: email.includes('@') ? email.split('@')[0] : email,
           email: email.includes('@') ? email : undefined,
           avatar_url: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&h=200&q=80`,
           coin_balance: 200,
-          role: isKajju ? 'super_admin' : 'user',
+          role: 'user',
           active: true,
         });
         setUser(newProfile);
@@ -213,11 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profiles = await db.getProfiles();
       const tgIdStr = String(tgUser.id);
       const tgUsernameClean = tgUser.username ? tgUser.username.replace('@', '').toLowerCase() : '';
-      const isKajjuAdmin =
-        tgUsernameClean === 'kajju66' ||
-        (tgUser.first_name && tgUser.first_name.toLowerCase().replace('@', '') === 'kajju66') ||
-        tgIdStr === '894405473';
-      const targetRole: UserRole = isKajjuAdmin ? 'super_admin' : 'user';
+      const isVerifiedOwner = tgIdStr === '894405473';
 
       const fullName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ');
       const displayName = tgUser.username ? `@${tgUser.username.replace('@', '')}` : (fullName || `TG_${tgIdStr.slice(-4)}`);
@@ -225,20 +219,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tgUser.photo_url ||
         `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName || displayName)}&background=24A1DE&color=ffffff&bold=true&size=256`;
 
-      // Check if user exists by telegram_id or telegram_username or username
+      // Check if user exists by telegram_id or id
       let existing = profiles.find(
         (p) =>
           (p.telegram_id && String(p.telegram_id) === tgIdStr) ||
-          (p.id === `tg-${tgIdStr}`) ||
-          (p.telegram_username && p.telegram_username.toLowerCase().replace('@', '') === tgUsernameClean) ||
-          (tgUsernameClean && p.username.toLowerCase().replace('@', '') === tgUsernameClean)
+          (p.id === `tg-${tgIdStr}`)
       );
 
+      const targetRole: UserRole = existing?.role || (isVerifiedOwner ? 'super_admin' : 'user');
+
       if (existing) {
-        // Update telegram details with latest Telegram avatar and name
+        // Update telegram details with latest verified Telegram avatar and name
         const updated = await db.saveProfile({
           ...existing,
-          role: targetRole === 'super_admin' ? 'super_admin' : (existing.role || 'user'),
+          role: targetRole,
           telegram_id: tgIdStr,
           telegram_username: tgUser.username ? tgUser.username.replace('@', '') : existing.telegram_username,
           telegram_first_name: tgUser.first_name || existing.telegram_first_name,
@@ -252,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUser(updated);
         localStorage.setItem(CURRENT_USER_KEY, updated.id);
-        if (isKajjuAdmin) {
+        if (targetRole === 'super_admin' || targetRole === 'admin') {
           toast.success(`Yönetici Girişi Başarılı! Hoş geldin ${fullName || displayName} 👑`);
         } else {
           toast.success(`Telegram ile giriş yapıldı! Hoş geldin ${fullName || displayName} 🚀`);
@@ -260,7 +254,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         return true;
       } else {
-        // Create brand new Telegram verified profile with special welcome bonus
+        // Create brand new Telegram verified profile
         const newProfile = await db.saveProfile({
           id: `tg-${tgIdStr}`,
           username: displayName,
@@ -279,7 +273,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUser(newProfile);
         localStorage.setItem(CURRENT_USER_KEY, newProfile.id);
-        if (isKajjuAdmin) {
+
+        try {
+          activityTracker.trackActivity({
+            action_type: 'login',
+            action_name: `Giriş Yapıldı: ${newProfile.username} (${targetRole})`,
+            user_id: newProfile.id,
+            username: newProfile.username,
+            details: {
+              role: targetRole,
+              telegram_id: tgIdStr,
+              telegram_username: tgUser.username,
+            },
+          });
+        } catch {}
+
+        if (targetRole === 'super_admin' || targetRole === 'admin') {
           toast.success(`Yönetici Girişi Başarılı! Hoş geldin ${fullName || displayName} 👑`);
         } else {
           toast.success(`Telegram hesabınız bağlandı! +250 Hoş Geldin Coini tanımlandı 🎁`);
@@ -298,69 +307,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithTelegramCode = async (code: string, username?: string): Promise<boolean> => {
     setLoading(true);
     try {
-      const cleanCode = code.trim().toUpperCase();
-      if (!cleanCode || cleanCode.length < 4) {
-        toast.error('Geçerli bir 6 haneli Telegram doğrulama kodu giriniz.');
+      const cleanCode = code.trim().replace(/\s+/g, '');
+      if (!cleanCode || !/^\d{6}$/.test(cleanCode)) {
+        toast.error('Lütfen Telegram botumuzdan aldığınız 6 haneli güvenlik kodunu giriniz.');
         setLoading(false);
         return false;
       }
 
-      // Master admin bypass for Kajju
-      if (cleanCode === 'KAJJU66' || cleanCode === '@KAJJU66' || cleanCode === 'ADMIN') {
-        const adminTgUser: TelegramAuthUser = {
-          id: '894405473',
-          first_name: 'Kajju',
-          last_name: 'Admin',
-          username: 'kajju66',
-          auth_date: Math.floor(Date.now() / 1000),
-          photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80',
-        };
-        return await loginWithTelegram(adminTgUser);
-      }
-
-      // If user provided a Telegram username (starts with @ or contains letters)
-      if (cleanCode.startsWith('@') || (!/^\d{4,8}$/.test(cleanCode) && cleanCode.length >= 3)) {
-        const cleanName = cleanCode.replace('@', '').toLowerCase();
-        const profiles = await db.getProfiles();
-        const matched = profiles.find(
-          (p) =>
-            p.telegram_username?.toLowerCase().replace('@', '') === cleanName ||
-            p.username.toLowerCase().replace('@', '') === cleanName
-        );
-
-        if (matched) {
-          return await loginWithTelegram({
-            id: matched.telegram_id || matched.id.replace('tg-', ''),
-            username: matched.telegram_username || matched.username,
-            first_name: matched.telegram_first_name || matched.username,
-            last_name: matched.telegram_last_name || '',
-            photo_url: matched.avatar_url,
-          });
-        } else {
-          // Attempt to sync from Telegram API directly
-          try {
-            const syncRes = await fetch('/api/telegram/sync-profile', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: cleanName }),
-            });
-            if (syncRes.ok) {
-              const syncData = await syncRes.json();
-              if (syncData.success) {
-                return await loginWithTelegram({
-                  id: syncData.telegram_id || String(Date.now()).slice(-8),
-                  username: cleanName,
-                  first_name: cleanName,
-                  photo_url: syncData.photo_url,
-                });
-              }
-            }
-          } catch {}
-        }
-      }
-
-      // 1. First attempt to verify with server Telegram Bot API (if Node.js backend running)
-      let backendCheckAttempted = false;
+      // 1. Verify code with server Telegram API
       try {
         const response = await fetch('/api/telegram/verify-code', {
           method: 'POST',
@@ -368,24 +322,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({ code: cleanCode }),
         });
 
-        backendCheckAttempted = true;
         const data = await response.json().catch(() => ({}));
 
         if (response.ok && data.success && data.user) {
           return await loginWithTelegram(data.user);
         } else if (response.status === 400 && data.message) {
-          // Explicit rejection from bot backend (expired or invalid code)
           toast.error(data.message);
           setLoading(false);
           return false;
         }
       } catch (apiErr) {
-        // Backend API offline (e.g. static hosting on cPanel / Vercel / Netlify)
-        console.warn('Backend verify-code endpoint unreachable, attempting direct database lookup:', apiErr);
+        console.warn('Backend verify-code endpoint unreachable, checking database:', apiErr);
       }
 
       // 2. Direct Cloud Database Verification (Supabase admin_logs / telegram_auth_codes)
-      // This guarantees instant authentication when the site is hosted on cPanel or static hosting
       try {
         const { data: logRows } = await supabase
           .from('admin_logs')
@@ -431,7 +381,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Direct database Telegram verification error:', dbErr);
       }
 
-      // If code was not found anywhere and not valid:
       toast.error('❌ Geçersiz veya süresi dolmuş kod! Kodlar 5 dakika geçerlidir. Lütfen Telegram botumuza (@ShelbyOnlineBOT) gidip /start yazarak yeni kod alınız.');
       setLoading(false);
       return false;
@@ -478,6 +427,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(newProfile);
       localStorage.setItem(CURRENT_USER_KEY, newProfile.id);
+
+      try {
+        activityTracker.trackActivity({
+          action_type: 'register',
+          action_name: `Yeni Üye Kaydı: ${username}`,
+          user_id: newProfile.id,
+          username: username,
+          details: { email },
+        });
+      } catch {}
+
       toast.success(`Hesabınız oluşturuldu! +150 Coin hoş geldin hediyesi yüklendi.`);
       setLoading(false);
       return true;
@@ -545,19 +505,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isKajjuAdmin = !!(
+  // Role validation strictly based on authentic database records & verified Telegram credentials
+  const isAdmin = Boolean(
     user &&
-    (user.role === 'admin' ||
-      user.role === 'super_admin' ||
-      user.role === 'editor' ||
-      user.telegram_username?.toLowerCase().replace('@', '') === 'kajju66' ||
-      user.username.toLowerCase().replace('@', '') === 'kajju66' ||
-      user.email?.toLowerCase().includes('kajju66'))
+    user.active !== false &&
+    (user.role === 'admin' || user.role === 'super_admin')
   );
 
-  const isAdmin = isKajjuAdmin || user?.role === 'admin' || user?.role === 'super_admin';
-  const isSuperAdmin = isKajjuAdmin || user?.role === 'super_admin';
-  const isEditor = isKajjuAdmin || user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'editor';
+  const isSuperAdmin = Boolean(
+    user &&
+    user.active !== false &&
+    user.role === 'super_admin'
+  );
+
+  const isEditor = Boolean(
+    user &&
+    user.active !== false &&
+    (user.role === 'admin' || user.role === 'super_admin' || user.role === 'editor')
+  );
 
   return (
     <AuthContext.Provider

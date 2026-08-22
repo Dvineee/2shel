@@ -26,6 +26,7 @@ import { NotFoundPage } from './pages/NotFound';
 // Admin Pages
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboard } from './pages/admin/Dashboard';
+import { SeoManager } from './pages/admin/SeoManager';
 import { UsersManager } from './pages/admin/UsersManager';
 import { PagesManager } from './pages/admin/PagesManager';
 import { SponsorsManager } from './pages/admin/SponsorsManager';
@@ -35,12 +36,15 @@ import { GiveawaysManager } from './pages/admin/GiveawaysManager';
 import { StoreManager } from './pages/admin/StoreManager';
 import { SettingsManager } from './pages/admin/SettingsManager';
 import { LogsManager } from './pages/admin/LogsManager';
+import { VisitorLogsManager } from './pages/admin/VisitorLogsManager';
+import { VisitorTrackerListener } from './components/common/VisitorTrackerListener';
 
 export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <DataProvider>
+          <VisitorTrackerListener />
           <Toaster
             position="top-right"
             richColors
@@ -142,6 +146,7 @@ export function App() {
             {/* Admin Layout */}
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<AdminDashboard />} />
+              <Route path="seo" element={<SeoManager />} />
               <Route path="users" element={<UsersManager />} />
               <Route path="pages" element={<PagesManager />} />
               <Route path="sponsors" element={<SponsorsManager />} />
@@ -150,6 +155,7 @@ export function App() {
               <Route path="giveaways" element={<GiveawaysManager />} />
               <Route path="store" element={<StoreManager />} />
               <Route path="settings" element={<SettingsManager />} />
+              <Route path="visitor-logs" element={<VisitorLogsManager />} />
               <Route path="logs" element={<LogsManager />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

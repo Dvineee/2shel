@@ -600,6 +600,48 @@ CREATE TABLE IF NOT EXISTS public.user_streaks (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 17. Ziyaretçi, Cihaz & Giriş Logları (Tüm Zamanların Girişleri)
+CREATE TABLE IF NOT EXISTS public.visitor_logs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  visitor_id TEXT,
+  user_id TEXT,
+  username TEXT,
+  is_authenticated BOOLEAN DEFAULT FALSE,
+  device_type TEXT DEFAULT 'desktop',
+  os TEXT,
+  os_version TEXT,
+  browser TEXT,
+  browser_version TEXT,
+  screen_resolution TEXT,
+  ip_address TEXT,
+  path TEXT DEFAULT '/',
+  page_title TEXT,
+  referrer TEXT,
+  action_type TEXT DEFAULT 'page_view',
+  action_name TEXT,
+  details JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 18. Günlük Toplam Ziyaretçi & Aktivite Logları (Gün Gün Arşiv)
+CREATE TABLE IF NOT EXISTS public.daily_visitor_logs (
+  date TEXT PRIMARY KEY, -- 'YYYY-MM-DD'
+  unique_visitors INT DEFAULT 0,
+  total_page_views INT DEFAULT 0,
+  total_events INT DEFAULT 0,
+  mobile_count INT DEFAULT 0,
+  desktop_count INT DEFAULT 0,
+  tablet_count INT DEFAULT 0,
+  bot_count INT DEFAULT 0,
+  authenticated_users INT DEFAULT 0,
+  top_page TEXT,
+  top_page_views INT DEFAULT 0,
+  peak_hour TEXT,
+  details JSONB DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- RLS (Row Level Security) Açma & Anonim Okuma/Yazma İzinleri (Public App)
 ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sponsors ENABLE ROW LEVEL SECURITY;
@@ -618,6 +660,8 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.telegram_auth_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_streaks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.visitor_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_visitor_logs ENABLE ROW LEVEL SECURITY;
 
 -- Anonim/Public Erişim Politikaları
 DO $$ 

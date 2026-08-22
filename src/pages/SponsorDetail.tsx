@@ -31,6 +31,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { getSponsorCategory } from '../lib/sponsorUtils';
+import { getSponsorPalette } from '../lib/colorExtractor';
 
 export const SponsorDetailPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -42,6 +43,8 @@ export const SponsorDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(!sponsor);
   const [copied, setCopied] = useState(false);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+
+  const palette = sponsor ? getSponsorPalette(sponsor) : null;
 
   useEffect(() => {
     if (!slug) return;
@@ -209,28 +212,54 @@ export const SponsorDetailPage: React.FC = () => {
         {/* Profile Details Bar */}
         <div className="p-4 sm:p-6 md:p-8 -mt-16 sm:-mt-20 relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 sm:gap-6">
-            {/* Logo Box (400x400 / 1:1 Aspect ratio support) */}
-            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#180e2e] via-[#0f091f] to-[#07040e] border-2 border-violet-500/50 p-2.5 sm:p-3.5 shadow-2xl flex items-center justify-center shrink-0 relative overflow-hidden backdrop-blur-md">
-              {/* Blurred Logo Ambient Effect */}
+            {/* Logo Box with ShelbyOnline Standardized Background System */}
+            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl sm:rounded-3xl bg-gradient-to-b from-[#0e0620] via-[#080314] to-[#04010a] border-2 border-violet-500/50 p-2.5 sm:p-3.5 shadow-2xl flex items-center justify-center shrink-0 relative overflow-hidden backdrop-blur-md">
+              {/* Atmospheric Smoke Clouds */}
+              <div className="absolute -inset-2 bg-[radial-gradient(ellipse_at_30%_40%,rgba(168,85,247,0.32)_0%,transparent_75%)] blur-xl pointer-events-none animate-smoke-1" />
+              <div className="absolute -inset-4 bg-[radial-gradient(ellipse_at_70%_60%,rgba(192,38,211,0.28)_0%,transparent_80%)] blur-xl pointer-events-none animate-smoke-2" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(168,85,247,0.35)_0%,rgba(88,28,135,0.1)_65%,transparent_85%)] pointer-events-none" />
+
+              {/* Blurred Background Logo Atmosphere - High Visibility */}
               {sponsor.logo_url && (
-                <img
-                  src={sponsor.logo_url}
-                  alt=""
-                  aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover scale-150 blur-xl opacity-35 brightness-90 contrast-125 select-none"
-                />
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden select-none z-0">
+                  <img
+                    src={sponsor.logo_url}
+                    alt=""
+                    aria-hidden="true"
+                    className="w-[95%] h-[95%] object-contain object-center filter blur-xl scale-125 opacity-60 brightness-110 saturate-175 contrast-125 select-none pointer-events-none"
+                  />
+                </div>
               )}
-              <div className="absolute inset-0 bg-gradient-to-b from-[#0e071e]/60 via-transparent to-[#070310]/80 pointer-events-none" />
-              <div className="absolute inset-0 bg-radial from-violet-500/20 via-transparent to-transparent pointer-events-none" />
+
+              {/* ShelbyOnline Subtle Background Watermark */}
+              <div className="absolute -inset-6 flex flex-col items-center justify-center pointer-events-none overflow-hidden select-none -rotate-12 space-y-1 opacity-85">
+                <span className="text-[8px] sm:text-[10px] font-black tracking-[0.3em] text-violet-400/[0.045] uppercase whitespace-nowrap">
+                  SHELBYONLINE &bull; SHELBYONLINE
+                </span>
+                <span className="text-[11px] sm:text-[13px] font-black tracking-[0.25em] text-white/[0.06] uppercase whitespace-nowrap">
+                  SHELBYONLINE &bull; SHELBYONLINE
+                </span>
+                <span className="text-[15px] sm:text-[19px] font-black tracking-[0.2em] text-white/[0.09] uppercase whitespace-nowrap my-0.5">
+                  SHELBYONLINE
+                </span>
+                <span className="text-[11px] sm:text-[13px] font-black tracking-[0.25em] text-white/[0.06] uppercase whitespace-nowrap">
+                  SHELBYONLINE &bull; SHELBYONLINE
+                </span>
+                <span className="text-[8px] sm:text-[10px] font-black tracking-[0.3em] text-violet-400/[0.045] uppercase whitespace-nowrap">
+                  SHELBYONLINE &bull; SHELBYONLINE
+                </span>
+              </div>
               
               {sponsor.logo_url ? (
-                <img
-                  src={sponsor.logo_url}
-                  alt={sponsor.name}
-                  className="relative z-10 w-full h-full object-contain object-center drop-shadow-[0_6px_16px_rgba(0,0,0,0.95)] select-none"
-                />
+                <div className="relative z-10 w-full h-full flex items-center justify-center">
+                  <img
+                    src={sponsor.logo_url}
+                    alt={sponsor.name}
+                    className="max-w-[90%] max-h-[82%] w-auto h-auto object-contain object-center drop-shadow-[0_8px_18px_rgba(0,0,0,0.95)] select-none"
+                  />
+                </div>
               ) : (
-                <span className="text-sm font-black text-white">{sponsor.name}</span>
+                <span className="relative z-10 text-sm font-black text-white">{sponsor.name}</span>
               )}
             </div>
 

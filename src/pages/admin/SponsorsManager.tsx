@@ -44,6 +44,7 @@ import {
   Eye,
   Activity,
   CheckCircle,
+  MousePointerClick,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
@@ -65,6 +66,25 @@ export const SponsorsManager: React.FC = () => {
   const [testingDb, setTestingDb] = useState(false);
   const [dbTestResult, setDbTestResult] = useState<any>(null);
   const [showTestModal, setShowTestModal] = useState(false);
+  const [syncingClicks, setSyncingClicks] = useState(false);
+
+  const handleSyncClicks = async () => {
+    soundEngine.playClick();
+    setSyncingClicks(true);
+    try {
+      const res = await db.syncSponsorClicks();
+      if (res.success) {
+        toast.success(res.message || 'Tıklamalar başarıyla senkronize edildi.');
+        await refreshAll();
+      } else {
+        toast.error('Senkronizasyon yapılamadı: ' + res.message);
+      }
+    } catch (e: any) {
+      toast.error('Senkronizasyon hatası: ' + (e?.message || 'Bilinmeyen hata'));
+    } finally {
+      setSyncingClicks(false);
+    }
+  };
 
   const handleTestDatabase = async () => {
     soundEngine.playClick();
@@ -324,6 +344,7 @@ export const SponsorsManager: React.FC = () => {
       rtp_rate: rtpRate,
       online_players: onlinePlayers ? (parseInt(onlinePlayers.replace(/[^0-9]/g, '')) || 0) : undefined,
       live_support: liveSupport,
+      clicks_count: editingSponsor?.clicks_count !== undefined ? Number(editingSponsor.clicks_count) : 0,
       payment_methods: paymentMethodsParsed,
       pros: prosParsed,
       cons: consParsed,
@@ -529,6 +550,15 @@ export const SponsorsManager: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleSyncClicks}
+            disabled={syncingClicks}
+            className="px-3.5 py-2.5 rounded-xl bg-cyan-950/70 border border-cyan-700/60 text-cyan-300 hover:text-white hover:bg-cyan-900/60 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+            title="Sponsor Tıklamalarını Veritabanı Kayıtlarından Yeniden Hesapla ve Eşitle"
+          >
+            <MousePointerClick className={`w-3.5 h-3.5 text-cyan-400 ${syncingClicks ? 'animate-spin' : ''}`} />
+            <span>{syncingClicks ? 'Eşitleniyor...' : 'Tıklamaları Senkronize Et'}</span>
+          </button>
           <button
             onClick={handleTestDatabase}
             disabled={testingDb}
@@ -766,8 +796,11 @@ export const SponsorsManager: React.FC = () => {
                       </td>
 
                       {/* Clicks */}
-                      <td className="px-3 py-4 text-center font-bold text-slate-300">
-                        {sponsor.clicks_count || 0}
+                      <td className="px-3 py-4 text-center">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-950/60 border border-cyan-800/40 text-cyan-300 font-black text-xs">
+                          <MousePointerClick className="w-3 h-3 text-cyan-400" />
+                          {(sponsor.clicks_count || 0).toLocaleString()}
+                        </span>
                       </td>
 
                       {/* Active / Passive Toggle */}

@@ -12,10 +12,17 @@ import {
 } from '../types';
 
 export const initialSiteSettings: SiteSettings = {
-  site_name: 'SHELBYONLINE',
-  site_title: 'ShelbyOnline | Premium Sponsor & Kampanya Platformu',
-  site_description:
-    'Doğrulanmış güvenilir sponsor platformları, özel yatırım ve deneme bonusları, günlük çark hediyeleri ve ödüllü topluluk çekilişleri.',
+  site_name: 'Shelby Online',
+  site_title: 'Shelby Online',
+  meta_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
+  site_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
+  og_title: 'Shelby Online | Güncel Kampanyalar',
+  og_description: 'En güncel kampanyaları ve bonusları keşfet.',
+  og_image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1200&h=630&q=80',
+  og_url: 'https://shelbyonline.com',
+  og_site_name: 'Shelby Online',
+  favicon_url: '',
+  twitter_card: 'summary_large_image',
   logo_text: 'SHELBYONLINE',
   logo_tagline: 'PREMIUM SPONSOR & GAMING NETWORK',
   footer_text:

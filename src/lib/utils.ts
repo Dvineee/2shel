@@ -27,16 +27,19 @@ export function formatTimeLeft(targetDate?: string): string {
   try {
     const time = new Date(targetDate).getTime();
     if (isNaN(time)) return 'Süresi Doldu';
-    const diff = time - Date.now();
+    const now = Date.now();
+    const diff = time - now;
     if (diff <= 0) return 'Süresi Doldu';
 
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
     if (days > 0) return `${days} gün ${hours} saat`;
     if (hours > 0) return `${hours} saat ${minutes} dk`;
-    return `${minutes} dakika`;
+    if (minutes > 0) return `${minutes} dk ${seconds} sn`;
+    return `${seconds} saniye`;
   } catch {
     return 'Süresi Doldu';
   }

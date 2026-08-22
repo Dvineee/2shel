@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard,
   ShieldCheck,
+  ShieldAlert,
   Image,
   Disc,
   Gift,
@@ -14,12 +15,15 @@ import {
   Layers,
   FileText,
   Users,
+  Lock,
+  Globe,
+  Activity,
+  Smartphone,
 } from 'lucide-react';
 import { soundEngine } from '../../lib/sound';
 
 export const AdminLayout: React.FC = () => {
-  const { user, isAdmin, loading, loginWithTelegramCode } = useAuth();
-  const [loggingIn, setLoggingIn] = React.useState(false);
+  const { user, isAdmin, loading } = useAuth();
 
   if (loading) {
     return (
@@ -30,57 +34,13 @@ export const AdminLayout: React.FC = () => {
   }
 
   if (!isAdmin) {
-    return (
-      <div className="min-h-screen bg-[#070510] text-slate-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full p-8 rounded-3xl bg-[#120b24] border border-violet-800/40 text-center space-y-4 shadow-2xl">
-          <div className="w-12 h-12 rounded-2xl bg-violet-500/20 text-violet-400 flex items-center justify-center mx-auto border border-violet-500/30">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <h2 className="text-xl font-bold text-white">Yönetici Paneli</h2>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Bu sayfayı görüntülemek için yetkili yönetici oturumunu açınız. Sayfa değişmeden anında oturum açabilirsiniz.
-          </p>
-          <div className="space-y-2 pt-2">
-            <button
-              onClick={async () => {
-                setLoggingIn(true);
-                await loginWithTelegramCode('kajju66');
-                setLoggingIn(false);
-              }}
-              disabled={loggingIn}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-violet-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {loggingIn ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-              ) : (
-                <>
-                  <Crown className="w-4 h-4 text-amber-400" />
-                  <span>Yönetici Olarak Giriş Yap (@kajju66)</span>
-                </>
-              )}
-            </button>
-            <div className="flex gap-2">
-              <NavLink
-                to="/login"
-                className="flex-1 py-2.5 rounded-xl bg-violet-950/60 border border-violet-800/40 text-slate-300 hover:text-white font-bold text-xs transition-colors flex items-center justify-center"
-              >
-                Giriş Sayfası
-              </NavLink>
-              <NavLink
-                to="/"
-                className="flex-1 py-2.5 rounded-xl bg-violet-950/60 border border-violet-800/40 text-slate-300 hover:text-white font-bold text-xs transition-colors flex items-center justify-center"
-              >
-                Ana Sayfa
-              </NavLink>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <Navigate to="/login" replace />;
   }
 
   const menuItems = [
     { to: '/admin', label: 'Genel Bakış', icon: LayoutDashboard, end: true },
+    { to: '/admin/visitor-logs', label: 'Canlı Ziyaretçi & Cihaz Logları', icon: Activity },
+    { to: '/admin/seo', label: 'SEO & Link Önizleme', icon: Globe },
     { to: '/admin/users', label: 'Kullanıcılar & Yetkiler', icon: Users },
     { to: '/admin/pages', label: 'Sayfa Yönetimi (Aktif/Pasif)', icon: Layers },
     { to: '/admin/sponsors', label: 'Sponsor Yönetimi', icon: ShieldCheck },

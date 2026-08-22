@@ -99,8 +99,12 @@ export function sortSponsors(sponsors: Sponsor[]): Sponsor[] {
     const rawOrderA = a.sort_order;
     const rawOrderB = b.sort_order;
 
-    const numA = typeof rawOrderA === 'number' && !isNaN(rawOrderA) ? rawOrderA : parseInt(String(rawOrderA)) || 9999;
-    const numB = typeof rawOrderB === 'number' && !isNaN(rawOrderB) ? rawOrderB : parseInt(String(rawOrderB)) || 9999;
+    const numA = typeof rawOrderA === 'number' && !isNaN(rawOrderA)
+      ? rawOrderA
+      : (rawOrderA !== undefined && rawOrderA !== null && !isNaN(Number(rawOrderA)) ? Number(rawOrderA) : 0);
+    const numB = typeof rawOrderB === 'number' && !isNaN(rawOrderB)
+      ? rawOrderB
+      : (rawOrderB !== undefined && rawOrderB !== null && !isNaN(Number(rawOrderB)) ? Number(rawOrderB) : 0);
 
     if (numA !== numB) {
       return numA - numB;

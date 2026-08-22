@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Sponsor } from '../../types';
 import { ExternalLink, Sparkles, Crown, Info } from 'lucide-react';
@@ -6,28 +6,13 @@ import { db } from '../../lib/db';
 import { soundEngine } from '../../lib/sound';
 import { useData } from '../../context/DataContext';
 import { getSponsorCategory, SPONSOR_CATEGORIES } from '../../lib/sponsorUtils';
+import { getSponsorPalette } from '../../lib/colorExtractor';
 
 interface SponsorCardProps {
   sponsor: Sponsor;
   variant?: 'auto' | 'row' | 'grid';
   rank?: number;
 }
-
-// Gentle & Soft Cosmic Starlight Rain Particles (Lavender, Cyan, Ice White & Violet)
-const SOFT_COSMIC_DROPS = [
-  { left: '6%', size: 'w-1 h-1', duration: '7.5s', delay: '0s', opacity: 'opacity-40', color: 'bg-violet-300', glow: 'shadow-[0_0_4px_rgba(196,181,253,0.4)]' },
-  { left: '15%', size: 'w-1.5 h-1.5', duration: '6.2s', delay: '-3.2s', opacity: 'opacity-50', color: 'bg-indigo-300', glow: 'shadow-[0_0_4px_rgba(165,180,252,0.4)]' },
-  { left: '26%', size: 'w-1 h-1', duration: '8.8s', delay: '-1.5s', opacity: 'opacity-35', color: 'bg-cyan-200', glow: 'shadow-[0_0_4px_rgba(165,243,252,0.4)]' },
-  { left: '37%', size: 'w-1.5 h-1.5', duration: '7.0s', delay: '-4.8s', opacity: 'opacity-45', color: 'bg-white', glow: 'shadow-[0_0_4px_rgba(255,255,255,0.4)]' },
-  { left: '48%', size: 'w-1 h-1', duration: '8.0s', delay: '-2.2s', opacity: 'opacity-40', color: 'bg-violet-200', glow: 'shadow-[0_0_4px_rgba(221,214,254,0.4)]' },
-  { left: '59%', size: 'w-2 h-2', duration: '6.5s', delay: '-5.1s', opacity: 'opacity-45', color: 'bg-purple-300', glow: 'shadow-[0_0_4px_rgba(216,180,254,0.4)]' },
-  { left: '70%', size: 'w-1 h-1', duration: '9.2s', delay: '-0.8s', opacity: 'opacity-35', color: 'bg-cyan-100', glow: 'shadow-[0_0_4px_rgba(207,250,254,0.4)]' },
-  { left: '80%', size: 'w-1.5 h-1.5', duration: '7.2s', delay: '-3.9s', opacity: 'opacity-50', color: 'bg-indigo-200', glow: 'shadow-[0_0_4px_rgba(199,210,254,0.4)]' },
-  { left: '91%', size: 'w-1 h-1', duration: '8.5s', delay: '-6.4s', opacity: 'opacity-35', color: 'bg-violet-300', glow: 'shadow-[0_0_4px_rgba(196,181,253,0.4)]' },
-  { left: '20%', size: 'w-1 h-1', duration: '7.8s', delay: '-4.2s', opacity: 'opacity-40', color: 'bg-white', glow: 'shadow-[0_0_4px_rgba(255,255,255,0.4)]' },
-  { left: '65%', size: 'w-1 h-1', duration: '8.6s', delay: '-2.8s', opacity: 'opacity-35', color: 'bg-purple-200', glow: 'shadow-[0_0_4px_rgba(233,213,255,0.4)]' },
-  { left: '85%', size: 'w-1.5 h-1.5', duration: '6.8s', delay: '-1.9s', opacity: 'opacity-45', color: 'bg-violet-300', glow: 'shadow-[0_0_4px_rgba(196,181,253,0.4)]' },
-];
 
 export const SponsorCard: React.FC<SponsorCardProps> = ({
   sponsor,
@@ -36,6 +21,7 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
   const [imgError, setImgError] = useState(false);
 
   const cat = getSponsorCategory(sponsor);
+  const palette = useMemo(() => getSponsorPalette(sponsor), [sponsor]);
 
   // Direct Outbound Click Handler (Opens website_url instantly)
   const handleDirectSiteClick = (e?: React.MouseEvent) => {
@@ -131,48 +117,64 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
         <div className="w-1/2 h-full bg-gradient-to-r from-transparent via-white/5 to-transparent transform -skew-x-12 animate-shimmer-sweep" />
       </div>
 
-      {/* 1. TOP 400x400 (1:1 ASPECT-SQUARE) CONTAINER - DIRECT OUTBOUND CLICKABLE */}
+      {/* 1. STANDARDIZED SHELBYONLINE LOGO PRESENTATION CANVAS (1:1 ASPECT-SQUARE) */}
       <div
-        className={`relative w-full aspect-square bg-gradient-to-b ${themeColors.topBannerBg} border-b border-violet-900/25 flex items-center justify-center overflow-hidden select-none`}
+        className={`relative w-full aspect-square bg-gradient-to-b from-[#0e0620] via-[#080314] to-[#04010a] border-b border-violet-900/40 flex items-center justify-center overflow-hidden select-none`}
       >
-        {/* BLURRED BACKGROUND LOGO EFFECT */}
+        {/* MULTI-LAYERED ATMOSPHERIC SMOKE & VAPOR CLOUDS */}
+        {/* Layer 1: Base Ambient Smoke Flow */}
+        <div className="absolute -inset-4 bg-[radial-gradient(ellipse_at_30%_40%,rgba(168,85,247,0.32)_0%,rgba(126,34,206,0.18)_40%,transparent_75%)] blur-2xl pointer-events-none animate-smoke-1 z-0" />
+        
+        {/* Layer 2: Counter Swirling Neon Magenta/Purple Vapor Plume */}
+        <div className="absolute -inset-6 bg-[radial-gradient(ellipse_at_70%_60%,rgba(192,38,211,0.28)_0%,rgba(147,51,234,0.15)_45%,transparent_80%)] blur-3xl pointer-events-none animate-smoke-2 z-0" />
+
+        {/* Layer 3: Central Intense Neon Plasma Core behind Logo */}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(168,85,247,0.38)_0%,rgba(147,51,234,0.2)_35%,rgba(88,28,135,0.08)_65%,transparent_85%)] pointer-events-none animate-smoke-3 z-0" />
+
+        {/* Dense Soft Mist Smoke Puffs */}
+        <div className="absolute -bottom-4 -left-4 w-36 h-36 rounded-full bg-violet-600/25 blur-2xl pointer-events-none animate-pulse-glow z-0" />
+        <div className="absolute -top-4 -right-4 w-36 h-36 rounded-full bg-fuchsia-600/20 blur-2xl pointer-events-none animate-pulse-glow z-0" />
+
+        {/* BLURRED BACKGROUND LOGO ATMOSPHERE (Deep authentic brand depth - High Visibility) */}
         {sponsor.logo_url && !imgError && (
-          <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 select-none">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden select-none z-0">
             <img
               src={sponsor.logo_url}
               alt=""
               aria-hidden="true"
-              className="w-full h-full object-cover scale-150 blur-xl opacity-30 brightness-90 contrast-125 select-none"
+              className="w-[95%] h-[95%] object-contain object-center filter blur-xl scale-125 opacity-60 brightness-110 saturate-175 contrast-125 select-none pointer-events-none transition-all duration-500 group-hover:scale-135 group-hover:opacity-75"
               loading="lazy"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-[#0e071e]/70 via-[#0a0516]/60 to-[#070310]/80" />
           </div>
         )}
 
-        {/* Soft Radial Ambient Lighting */}
-        <div className="absolute inset-0 bg-radial from-violet-500/10 via-transparent to-transparent pointer-events-none" />
-
-        {/* Gentle Ambient Blur Spheres */}
-        <div className="absolute -top-6 -right-6 w-20 h-20 sm:w-28 sm:h-28 rounded-full bg-violet-600/10 blur-xl sm:blur-2xl pointer-events-none animate-pulse-glow" />
-        <div className="absolute -bottom-6 -left-6 w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-purple-600/10 blur-xl sm:blur-2xl pointer-events-none animate-pulse-glow" />
-
-        {/* SOFT FLOATING COSMIC PARTICLES */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-[1]">
-          {SOFT_COSMIC_DROPS.map((drop, i) => (
-            <div
-              key={i}
-              className={`absolute top-0 rounded-full ${drop.size} ${drop.color} ${drop.opacity} ${drop.glow} blur-[0.5px] animate-circle-rain`}
-              style={{
-                left: drop.left,
-                animationDuration: drop.duration,
-                animationDelay: drop.delay,
-              }}
-            />
-          ))}
+        {/* SHELBYONLINE DECORATIVE WATERMARK (Dense multi-line diagonal brand wallpaper) */}
+        <div className="absolute -inset-10 flex flex-col items-center justify-center pointer-events-none overflow-hidden select-none z-[2] -rotate-12 space-y-1.5 opacity-90">
+          <span className="text-[11px] sm:text-[13px] font-black tracking-[0.35em] sm:tracking-[0.4em] text-violet-400/[0.045] uppercase whitespace-nowrap select-none">
+            SHELBYONLINE &bull; SHELBYONLINE &bull; SHELBYONLINE
+          </span>
+          <span className="text-[15px] sm:text-[18px] font-black tracking-[0.3em] sm:tracking-[0.35em] text-white/[0.055] uppercase whitespace-nowrap select-none">
+            SHELBYONLINE &bull; SHELBYONLINE &bull; SHELBYONLINE
+          </span>
+          <span className="text-[20px] sm:text-[26px] font-black tracking-[0.25em] sm:tracking-[0.3em] text-white/[0.07] uppercase whitespace-nowrap select-none">
+            SHELBYONLINE &bull; SHELBYONLINE
+          </span>
+          <span className="text-[26px] sm:text-[34px] font-black tracking-[0.2em] sm:tracking-[0.25em] text-white/[0.09] uppercase whitespace-nowrap select-none my-0.5">
+            SHELBYONLINE
+          </span>
+          <span className="text-[20px] sm:text-[26px] font-black tracking-[0.25em] sm:tracking-[0.3em] text-white/[0.07] uppercase whitespace-nowrap select-none">
+            SHELBYONLINE &bull; SHELBYONLINE
+          </span>
+          <span className="text-[15px] sm:text-[18px] font-black tracking-[0.3em] sm:tracking-[0.35em] text-white/[0.055] uppercase whitespace-nowrap select-none">
+            SHELBYONLINE &bull; SHELBYONLINE &bull; SHELBYONLINE
+          </span>
+          <span className="text-[11px] sm:text-[13px] font-black tracking-[0.35em] sm:tracking-[0.4em] text-violet-400/[0.045] uppercase whitespace-nowrap select-none">
+            SHELBYONLINE &bull; SHELBYONLINE &bull; SHELBYONLINE
+          </span>
         </div>
 
-        {/* Top-Right Badge (Ultra Compact on Mobile) */}
-        <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20">
+        {/* Top-Right Category / Tier Badge */}
+        <div className="absolute top-2 right-2 sm:top-2.5 sm:right-2.5 z-20">
           <span
             className={`inline-flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2.5 py-0.5 rounded-full border backdrop-blur-md font-black text-[7.5px] sm:text-[9px] uppercase tracking-wider shadow-sm transition-all duration-300 whitespace-nowrap ${themeColors.badgeStyle}`}
           >
@@ -185,22 +187,24 @@ export const SponsorCard: React.FC<SponsorCardProps> = ({
           </span>
         </div>
 
-        {/* 400x400 FULLY FITTED CRISP IMAGE CONTAINER */}
-        <div className="relative z-10 w-full h-full flex items-center justify-center p-2.5 sm:p-4">
+        {/* LOGO CONTAINER: Clean, Crisp, Perfectly Preserved Aspect Ratio (No Glow Around Logo) */}
+        <div className="relative z-10 w-full h-full flex items-center justify-center p-3 sm:p-4.5">
           {sponsor.logo_url && !imgError ? (
-            <img
-              src={sponsor.logo_url}
-              alt={sponsor.name}
-              className="w-full h-full object-contain object-center drop-shadow-[0_6px_14px_rgba(0,0,0,0.9)] filter select-none"
-              loading="lazy"
-              onError={() => setImgError(true)}
-            />
+            <div className="w-full h-full flex items-center justify-center">
+              <img
+                src={sponsor.logo_url}
+                alt={sponsor.name}
+                className="max-w-[88%] max-h-[80%] w-auto h-auto object-contain object-center drop-shadow-[0_8px_16px_rgba(0,0,0,0.95)] select-none transition-transform duration-300 group-hover:scale-105"
+                loading="lazy"
+                onError={() => setImgError(true)}
+              />
+            </div>
           ) : (
-            <div className="flex flex-col items-center justify-center text-center p-1.5">
-              <span className="text-sm sm:text-lg font-black text-white tracking-tight truncate max-w-full">
+            <div className="flex flex-col items-center justify-center text-center p-2">
+              <span className="text-base sm:text-xl font-black text-white tracking-tight truncate max-w-full">
                 {sponsor.name}
               </span>
-              <span className="text-[8px] sm:text-[9px] text-violet-300 font-bold uppercase tracking-wider mt-0.5">
+              <span className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider mt-0.5 text-slate-400">
                 SPONSOR
               </span>
             </div>

@@ -33,7 +33,7 @@ import {
 import { toast } from 'sonner';
 import { soundEngine } from '../../lib/sound';
 import confetti from 'canvas-confetti';
-import { formatDate } from '../../lib/utils';
+import { formatDate, formatTimeLeft } from '../../lib/utils';
 import { ImageUploadField } from '../../components/common/ImageUploadField';
 import { SUPABASE_RECREATE_GIVEAWAYS_SQL } from '../../lib/supabase';
 
@@ -579,6 +579,8 @@ export const GiveawaysManager: React.FC = () => {
       }
     }
 
+    const isEndDateInFuture = new Date(validEndAt).getTime() > Date.now();
+
     const data: Partial<Giveaway> = {
       title: title.trim(),
       description: description.trim(),
@@ -587,6 +589,7 @@ export const GiveawaysManager: React.FC = () => {
       end_at: validEndAt,
       winner_count: Math.max(1, Number(winnerCount) || 1),
       active,
+      is_completed: isEndDateInFuture ? false : (editingGiveaway?.is_completed ?? false),
     };
 
     setIsSaving(true);
@@ -1202,8 +1205,23 @@ export const GiveawaysManager: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Bitiş Tarihi ve Saati *</label>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-slate-300 font-semibold text-xs">Bitiş Tarihi ve Saati *</label>
+                    {endAt && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                          new Date(endAt).getTime() > Date.now()
+                            ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-rose-950/80 text-rose-300 border border-rose-500/40'
+                        }`}
+                      >
+                        {new Date(endAt).getTime() > Date.now()
+                          ? `Kalan: ${formatTimeLeft(new Date(endAt).toISOString())}`
+                          : '⚠️ Geçmiş Tarih (Süresi Doldu)'}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="datetime-local"
                     required
@@ -1211,6 +1229,50 @@ export const GiveawaysManager: React.FC = () => {
                     onChange={(e) => setEndAt(e.target.value)}
                     className="w-full p-2.5 rounded-xl bg-[#0d0918] border border-violet-800/40 text-white focus:border-violet-500 focus:outline-none text-xs"
                   />
+                  {/* Quick Preset Buttons */}
+                  <div className="flex items-center gap-1 flex-wrap pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const now = new Date();
+                        const y = now.getFullYear();
+                        const m = String(now.getMonth() + 1).padStart(2, '0');
+                        const d = String(now.getDate()).padStart(2, '0');
+                        setEndAt(`${y}-${m}-${d}T23:59`);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold cursor-pointer transition-all"
+                    >
+                      ⚡ Bugün Sonu (23:59)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEndAt(formatDateTimeInput(undefined, 1))}
+                      className="px-2 py-1 rounded-lg bg-violet-950/70 hover:bg-violet-900 text-slate-300 border border-violet-800/50 text-[10px] font-semibold cursor-pointer transition-all"
+                    >
+                      +24 Saat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEndAt(formatDateTimeInput(undefined, 3))}
+                      className="px-2 py-1 rounded-lg bg-violet-950/70 hover:bg-violet-900 text-slate-300 border border-violet-800/50 text-[10px] font-semibold cursor-pointer transition-all"
+                    >
+                      +3 Gün
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEndAt(formatDateTimeInput(undefined, 7))}
+                      className="px-2 py-1 rounded-lg bg-violet-950/70 hover:bg-violet-900 text-slate-300 border border-violet-800/50 text-[10px] font-semibold cursor-pointer transition-all"
+                    >
+                      +7 Gün
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEndAt(formatDateTimeInput(undefined, 30))}
+                      className="px-2 py-1 rounded-lg bg-violet-950/70 hover:bg-violet-900 text-slate-300 border border-violet-800/50 text-[10px] font-semibold cursor-pointer transition-all"
+                    >
+                      +1 Ay
+                    </button>
+                  </div>
                 </div>
               </div>
 

@@ -35,6 +35,7 @@ import {
   initialStoreProducts,
 } from './initialData';
 import { supabase, getStoredSupabaseConfig } from './supabase';
+import { activityTracker } from './activityTracker';
 
 const isSupabaseReady = () => getStoredSupabaseConfig().isConfigured;
 
@@ -280,6 +281,8 @@ export const db = {
           try { const f = JSON.parse(d.faq); if (Array.isArray(f)) resolvedFaq = f; } catch {}
         }
 
+        const isRowActiveSponsor = d.is_active !== undefined ? (d.is_active !== false && d.is_active !== 'false' && d.is_active !== 0) : (d.active !== undefined ? (d.active !== false && d.active !== 'false' && d.active !== 0) : true);
+
         return {
           ...d,
           id: idStr,
@@ -294,11 +297,12 @@ export const db = {
           button_text: d.button_text || d.btn_text || 'SİTEYE GİT & KAZAN',
           rating: Number(d.rating || d.score || 5.0),
           category: cat,
-          featured: cat === 'vip',
-          is_vip: cat === 'vip',
+          featured: d.featured !== undefined ? Boolean(d.featured) : (cat === 'vip' || Boolean(d.is_vip)),
+          is_vip: d.is_vip !== undefined ? Boolean(d.is_vip) : (cat === 'vip'),
           verified: d.verified !== undefined ? d.verified !== false : true,
-          active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== undefined ? Boolean(d.active) : true),
-          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : 0,
+          active: isRowActiveSponsor,
+          is_active: isRowActiveSponsor,
+          sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (d.sort_order !== undefined && d.sort_order !== null && !isNaN(Number(d.sort_order)) ? Number(d.sort_order) : 0),
           bonus_code: d.bonus_code !== undefined && d.bonus_code !== null ? d.bonus_code : '',
           bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null ? d.bonus_headline : '',
           badge_text: d.badge_text !== undefined && d.badge_text !== null ? d.badge_text : '',
@@ -308,6 +312,7 @@ export const db = {
           rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null ? d.rtp_rate : '%97.8',
           online_players: d.online_players ? String(d.online_players) : '',
           live_support: d.live_support || '7/24 Türkçe Canlı Destek',
+          clicks_count: Number(d.clicks_count || d.clicks || 0),
           payment_methods: resolvedPaymentMethods,
           stats: resolvedStats,
           features: resolvedFeatures,
@@ -444,7 +449,7 @@ export const db = {
           active: isRowActive(d),
           winner_count: Number(d.total_winners || d.winner_count || 1),
           entries_count: Math.max(Number(d.entries_count) || 0, matchingEntriesCount),
-          is_completed: Boolean(d.is_completed || winnerName),
+          is_completed: Boolean(winnerName || d.is_completed),
           winner_username: winnerName,
           winner_id: d.winner_id || (winnerObj ? winnerObj.id : undefined),
           winner_announced_at: d.winner_announced_at || (winnerObj ? winnerObj.date : undefined),
@@ -612,6 +617,17 @@ export const db = {
     const updated: SiteSettings = { ...current, ...settings };
     setStored(STORAGE_KEYS.SITE_SETTINGS, updated);
 
+    // Call server-side authoritative SEO & Settings endpoint
+    try {
+      await fetch('/api/seo/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+    } catch (apiErr) {
+      console.warn('API /api/seo/save call warning (non-fatal):', apiErr);
+    }
+
     if (isSupabaseReady()) {
       try {
         const { error } = await supabase
@@ -630,7 +646,7 @@ export const db = {
     }
 
     await invalidateServerCache();
-    await this.logAdminAction('Site Ayarları Güncellendi', 'settings', undefined, settings);
+    await this.logAdminAction('Site ve SEO Ayarları Güncellendi', 'settings', undefined, settings);
     return updated;
   },
 
@@ -726,10 +742,12 @@ export const db = {
               button_text: d.button_text || d.btn_text || 'SİTEYE GİT & KAZAN',
               rating: Number(d.rating || d.score || 4.8),
               category: cat,
-              featured: cat === 'vip' || (d.is_vip !== undefined ? Boolean(d.is_vip) : Boolean(d.featured)),
+              featured: d.featured !== undefined ? Boolean(d.featured) : (cat === 'vip' || Boolean(d.is_vip)),
+              is_vip: d.is_vip !== undefined ? Boolean(d.is_vip) : (cat === 'vip'),
               verified: d.is_active !== false && (d.verified !== undefined ? d.verified !== false : true),
-              active: d.is_active !== undefined ? Boolean(d.is_active) : (d.active !== undefined ? Boolean(d.active) : true),
-              sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : 0,
+              active: d.is_active !== undefined ? (d.is_active !== false && d.is_active !== 'false' && d.is_active !== 0) : (d.active !== undefined ? (d.active !== false && d.active !== 'false' && d.active !== 0) : true),
+              is_active: d.is_active !== undefined ? (d.is_active !== false && d.is_active !== 'false' && d.is_active !== 0) : (d.active !== undefined ? (d.active !== false && d.active !== 'false' && d.active !== 0) : true),
+              sort_order: typeof d.sort_order === 'number' && !isNaN(d.sort_order) ? d.sort_order : (d.sort_order !== undefined && d.sort_order !== null && !isNaN(Number(d.sort_order)) ? Number(d.sort_order) : 0),
               bonus_code: d.bonus_code !== undefined && d.bonus_code !== null ? d.bonus_code : '',
               bonus_headline: d.bonus_headline !== undefined && d.bonus_headline !== null ? d.bonus_headline : '',
               badge_text: d.badge_text !== undefined && d.badge_text !== null ? d.badge_text : '',
@@ -739,6 +757,7 @@ export const db = {
               rtp_rate: d.rtp_rate !== undefined && d.rtp_rate !== null ? d.rtp_rate : '%97.8',
               online_players: d.online_players ? String(d.online_players) : '',
               live_support: d.live_support || '7/24 Türkçe Canlı Destek',
+              clicks_count: Number(d.clicks_count || d.clicks || 0),
               payment_methods: resolvedPaymentMethods,
               stats: resolvedStats,
               features: resolvedFeatures,
@@ -876,6 +895,7 @@ export const db = {
       active: saved.active !== false,
       is_active: saved.active !== false,
       sort_order: saved.sort_order || 0,
+      clicks_count: Number(saved.clicks_count || 0),
       bonus_code: saved.bonus_code || null,
       bonus_headline: saved.bonus_headline || null,
       badge_text: saved.badge_text || null,
@@ -1801,6 +1821,21 @@ export const db = {
       await this.addCoins(userId, selected.reward_value);
     }
 
+    try {
+      activityTracker.trackActivity({
+        action_type: 'wheel_spin',
+        action_name: `Çark Çevrildi: ${selected.title}`,
+        user_id: userId,
+        username,
+        details: {
+          reward_id: selected.id,
+          reward_title: selected.title,
+          reward_type: selected.reward_type,
+          reward_value: selected.reward_value,
+        },
+      });
+    } catch {}
+
     return {
       success: true,
       reward: selected,
@@ -2024,6 +2059,11 @@ export const db = {
       }
     }
 
+    const isFuture = new Date(endAtIso).getTime() > Date.now();
+    const explicitCompleted = giveaway.is_completed !== undefined
+      ? Boolean(giveaway.is_completed)
+      : (isFuture ? false : Boolean(giveaway.winner_username));
+
     if (giveaway.id) {
       const idx = giveaways.findIndex((g) => g.id === giveaway.id);
       if (idx !== -1) {
@@ -2031,6 +2071,7 @@ export const db = {
           ...giveaways[idx],
           ...giveaway,
           end_at: endAtIso,
+          is_completed: explicitCompleted,
           id: giveaway.id,
         } as Giveaway;
         giveaways[idx] = saved;
@@ -2038,6 +2079,7 @@ export const db = {
         saved = {
           ...giveaway,
           end_at: endAtIso,
+          is_completed: explicitCompleted,
           id: giveaway.id,
         } as Giveaway;
         giveaways.unshift(saved);
@@ -2055,7 +2097,7 @@ export const db = {
         active: giveaway.active !== false,
         winner_count: giveaway.winner_count || 1,
         entries_count: 0,
-        is_completed: Boolean(giveaway.is_completed),
+        is_completed: explicitCompleted,
         winner_username: giveaway.winner_username || undefined,
         winner_id: giveaway.winner_id || undefined,
         winner_announced_at: giveaway.winner_announced_at || undefined,
@@ -2408,6 +2450,20 @@ export const db = {
     };
     entries.push(newEntry);
     setStored(STORAGE_KEYS.GIVEAWAY_ENTRIES, entries);
+
+    try {
+      activityTracker.trackActivity({
+        action_type: 'giveaway_entry',
+        action_name: `Çekilişe Katıldı: ${targetG?.title || giveawayId}`,
+        user_id: userId,
+        username: cleanUsername,
+        details: {
+          giveaway_id: giveawayId,
+          giveaway_title: targetG?.title,
+          prize: targetG?.prize_details,
+        },
+      });
+    } catch {}
 
     // Immediately update entries_count in STORAGE_KEYS.GIVEAWAYS locally
     const giveaways = getStored<Giveaway[]>(STORAGE_KEYS.GIVEAWAYS, []);
@@ -3123,22 +3179,77 @@ export const db = {
     };
   },
 
-  // --- Click Tracking ---
+  // --- Click Tracking (Instant UI Update + Server & Supabase Synced) ---
   async trackSponsorClick(sponsorId: string, userId?: string): Promise<void> {
     try {
-      const sponsors = await this.getSponsors();
-      const target = sponsors.find((s) => s.id === sponsorId || s.slug === sponsorId);
+      const cleanId = String(sponsorId || '').trim();
+      if (!cleanId) return;
+
+      // 1. Instant local storage & broadcast synchronization (0ms UI lag)
+      const currentSponsors = getStored<Sponsor[]>(STORAGE_KEYS.SPONSORS, []);
+      const target = currentSponsors.find((s) => s.id === cleanId || s.slug === cleanId);
+      
+      let newCount = 1;
       if (target) {
-        target.clicks_count = (target.clicks_count || 0) + 1;
-        setStored(STORAGE_KEYS.SPONSORS, sponsors);
+        newCount = (Number(target.clicks_count) || 0) + 1;
+        target.clicks_count = newCount;
+        setStored(STORAGE_KEYS.SPONSORS, currentSponsors, true);
+        broadcastChange(STORAGE_KEYS.SPONSORS);
       }
 
-      if (isSupabaseReady()) {
-        await supabase.from('sponsor_clicks').insert({
-          sponsor_id: target?.id || sponsorId,
-          user_id: userId || null,
-          referrer: document.referrer || window.location.href,
+      const payload = {
+        id: target?.id || cleanId,
+        slug: target?.slug || '',
+        user_id: userId || null,
+        referrer: typeof document !== 'undefined' ? (document.referrer || window.location.href) : '',
+      };
+
+      // Real-time visitor activity log
+      try {
+        activityTracker.trackActivity({
+          action_type: 'sponsor_click',
+          action_name: `Sponsor Tıklandı: ${target?.name || target?.slug || cleanId}`,
+          user_id: userId,
+          details: {
+            sponsor_id: target?.id || cleanId,
+            sponsor_name: target?.name,
+            website_url: target?.website_url,
+          },
         });
+      } catch {}
+
+      // 2. High-reliability background beacon / keepalive fetch
+      if (typeof window !== 'undefined') {
+        try {
+          fetch('/api/sponsors/click', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
+      }
+
+      // 3. Direct Supabase write (event log + aggregate counter)
+      if (isSupabaseReady()) {
+        (async () => {
+          try {
+            await supabase.from('sponsor_clicks').insert({
+              sponsor_id: target?.id || cleanId,
+              user_id: userId || null,
+              referrer: payload.referrer,
+            });
+
+            if (target?.id) {
+              await supabase
+                .from('sponsors')
+                .update({ clicks_count: newCount })
+                .eq('id', target.id);
+            }
+          } catch (e) {
+            console.warn('Supabase direct click track warning:', e);
+          }
+        })();
       }
     } catch (err) {
       console.warn('Click tracking error:', err);
@@ -3147,23 +3258,92 @@ export const db = {
 
   async trackBannerClick(bannerId: string, userId?: string): Promise<void> {
     try {
-      const banners = await this.getBanners();
-      const target = banners.find((b) => b.id === bannerId);
+      const cleanId = String(bannerId || '').trim();
+      if (!cleanId) return;
+
+      const currentBanners = getStored<Banner[]>(STORAGE_KEYS.BANNERS, []);
+      const target = currentBanners.find((b) => b.id === cleanId);
+
+      let newCount = 1;
       if (target) {
-        target.clicks_count = (target.clicks_count || 0) + 1;
-        setStored(STORAGE_KEYS.BANNERS, banners);
+        newCount = (Number(target.clicks_count) || 0) + 1;
+        target.clicks_count = newCount;
+        setStored(STORAGE_KEYS.BANNERS, currentBanners, true);
+        broadcastChange(STORAGE_KEYS.BANNERS);
+      }
+
+      const payload = {
+        id: cleanId,
+        user_id: userId || null,
+        referrer: typeof document !== 'undefined' ? (document.referrer || window.location.href) : '',
+      };
+
+      try {
+        activityTracker.trackActivity({
+          action_type: 'banner_click',
+          action_name: `Banner Tıklandı: ${target?.name || cleanId}`,
+          user_id: userId,
+          details: {
+            banner_id: cleanId,
+            banner_name: target?.name,
+            target_url: target?.target_url,
+            image_url: target?.image_url,
+          },
+        });
+      } catch {}
+
+      if (typeof window !== 'undefined') {
+        try {
+          fetch('/api/banners/click', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
       }
 
       if (isSupabaseReady()) {
-        await supabase.from('banner_clicks').insert({
-          banner_id: bannerId,
-          user_id: userId || null,
-          referrer: document.referrer || window.location.href,
-        });
+        (async () => {
+          try {
+            await supabase.from('banner_clicks').insert({
+              banner_id: cleanId,
+              user_id: userId || null,
+              referrer: payload.referrer,
+            });
+
+            if (target?.id) {
+              await supabase
+                .from('banners')
+                .update({ clicks_count: newCount })
+                .eq('id', target.id);
+            }
+          } catch (e) {
+            console.warn('Supabase direct banner click track warning:', e);
+          }
+        })();
       }
     } catch (err) {
       console.warn('Banner click tracking error:', err);
     }
+  },
+
+  async syncSponsorClicks(): Promise<{ success: boolean; message: string; sponsors?: any[] }> {
+    try {
+      const res = await fetch('/api/sponsors/sync-clicks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Invalidate and refresh local cache
+        await this.getSponsors();
+        return data;
+      }
+    } catch (err) {
+      console.warn('syncSponsorClicks error:', err);
+    }
+    return { success: false, message: 'Senkronizasyon tamamlanamadı.' };
   },
 
   // --- Admin Logs (Database Authoritative) ---

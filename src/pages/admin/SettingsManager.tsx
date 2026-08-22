@@ -439,6 +439,7 @@ export const SettingsManager: React.FC = () => {
       site_description: siteDescription.trim(),
       logo_tagline: logoTagline.trim(),
       logo_url: logoUrl.trim(),
+      favicon_url: settings.favicon_url || logoUrl.trim(),
       support_email: supportEmail.trim() || 'destek@shelbyonline.com',
       footer_text: footerText.trim(),
       telegram_channel_url: telegramChannel.trim(),
@@ -552,6 +553,34 @@ export const SettingsManager: React.FC = () => {
             <span>{isSaving ? 'Kaydediliyor...' : 'Tüm Ayarları Kaydet'}</span>
           </button>
         </div>
+      </div>
+
+      {/* SEO & Link Önizleme Yönetimine Hızlı Geçiş Kartı */}
+      <div className="p-5 rounded-3xl bg-gradient-to-r from-violet-950/60 via-[#100b21] to-indigo-950/60 border border-violet-700/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-violet-600/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
+            <Globe className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-white">SEO & Sosyal Medya Link Önizleme</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Özel Sayfa
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Telegram, WhatsApp ve Discord'da paylaşılan link başlıklarını, açıklamalarını ve OG görsellerini canlı önizleme simülatörüyle düzenleyin.
+            </p>
+          </div>
+        </div>
+
+        <RouterLink
+          to="/admin/seo"
+          className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-extrabold shadow-lg shadow-violet-900/40 flex items-center gap-2 shrink-0 transition-all cursor-pointer"
+        >
+          <Eye className="w-4 h-4" />
+          <span>SEO & Link Önizleme Sayfasını Aç →</span>
+        </RouterLink>
       </div>
 
       {/* 1. Üst Duyuru & Kampanya Şeridi */}

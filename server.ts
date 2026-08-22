@@ -91,19 +91,45 @@ function markMessageProcessed(key: string): boolean {
   return false;
 }
 
-// Telegram API Helper
-async function telegramApiCall(method: string, body?: any) {
+// Telegram API Helper with resilient timeout and network error handling
+async function telegramApiCall(method: string, body?: any, timeoutMs?: number) {
   if (!TELEGRAM_BOT_TOKEN) return null;
+  
+  // Timeout for long-polling (getUpdates) is 25s; for standard API calls 8s
+  const effectiveTimeout = timeoutMs || (method === 'getUpdates' ? 25000 : 8000);
+
   try {
     const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`, {
       method: body ? 'POST' : 'GET',
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(effectiveTimeout),
     });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn(`[Telegram API] ${method} returned HTTP ${res.status}: ${errText}`);
+      return null;
+    }
+
     const data = await res.json();
     return data;
-  } catch (err) {
-    console.error(`Telegram API Error on [${method}]:`, err);
+  } catch (err: any) {
+    const isNetworkError =
+      err?.name === 'AbortError' ||
+      err?.name === 'TimeoutError' ||
+      err?.code === 'ECONNRESET' ||
+      err?.cause?.code === 'ECONNRESET' ||
+      err?.message?.includes('fetch failed') ||
+      err?.cause?.message?.includes('ECONNRESET');
+
+    if (method === 'getUpdates' && isNetworkError) {
+      // Long-polling idle reconnect cycle is normal when Telegram or container resets idle connection
+      // Log as brief info notice instead of throwing an unhandled error
+      return null;
+    }
+
+    console.warn(`[Telegram API] Warning on [${method}]:`, err?.message || err);
     return null;
   }
 }
@@ -123,9 +149,6 @@ async function syncTelegramUserToSupabase(tgUser: {
     const cleanUsername = tgUser.username ? tgUser.username.replace('@', '') : '';
     const fullName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ');
     const displayName = cleanUsername ? `@${cleanUsername}` : (fullName || `TG_${tgIdStr.slice(-4)}`);
-    const isKajju = cleanUsername.toLowerCase() === 'kajju66' || tgIdStr === '894405473';
-    const assignedRole = tgUser.role || (isKajju ? 'super_admin' : 'user');
-
     const headers = {
       apikey: SUPABASE_ANON_KEY,
       Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
@@ -145,6 +168,9 @@ async function syncTelegramUserToSupabase(tgUser: {
         existingProfile = list[0];
       }
     }
+
+    const isVerifiedOwner = tgIdStr === '894405473';
+    const assignedRole = existingProfile?.role || (isVerifiedOwner ? 'super_admin' : 'user');
 
     const profileRecord = {
       id: existingProfile?.id || `tg-${tgIdStr}`,
@@ -248,13 +274,17 @@ async function getTelegramUserProfilePhoto(userId: number, displayName: string):
         const fileRes = await telegramApiCall('getFile', { file_id: bestPhoto.file_id });
         if (fileRes && fileRes.ok && fileRes.result && fileRes.result.file_path) {
           const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileRes.result.file_path}`;
-          const imgFetch = await fetch(fileUrl);
-          if (imgFetch.ok) {
-            const arrayBuffer = await imgFetch.arrayBuffer();
-            const base64 = Buffer.from(arrayBuffer).toString('base64');
-            const contentType = imgFetch.headers.get('content-type') || 'image/jpeg';
-            console.log(`📸 Successfully fetched and encoded Telegram photo for user ${userId} (${base64.length} bytes)`);
-            return `data:${contentType};base64,${base64}`;
+          try {
+            const imgFetch = await fetch(fileUrl, { signal: AbortSignal.timeout(8000) });
+            if (imgFetch.ok) {
+              const arrayBuffer = await imgFetch.arrayBuffer();
+              const base64 = Buffer.from(arrayBuffer).toString('base64');
+              const contentType = imgFetch.headers.get('content-type') || 'image/jpeg';
+              console.log(`📸 Successfully fetched and encoded Telegram photo for user ${userId} (${base64.length} bytes)`);
+              return `data:${contentType};base64,${base64}`;
+            }
+          } catch (imgErr) {
+            // Fallback gracefully to avatar
           }
         }
       }
@@ -321,15 +351,22 @@ async function pollTelegramUpdates() {
   if (isPolling) return;
   isPolling = true;
 
+  let consecutiveErrors = 0;
+
   while (true) {
     try {
-      const res = await telegramApiCall('getUpdates', {
-        offset: pollingOffset,
-        timeout: 20,
-        allowed_updates: ['message', 'callback_query'],
-      });
+      const res = await telegramApiCall(
+        'getUpdates',
+        {
+          offset: pollingOffset,
+          timeout: 15,
+          allowed_updates: ['message', 'callback_query'],
+        },
+        22000
+      );
 
       if (res && res.ok && Array.isArray(res.result)) {
+        consecutiveErrors = 0;
         for (const update of res.result) {
           // Immediately acknowledge offset for Telegram
           if (update.update_id >= pollingOffset) {
@@ -337,9 +374,16 @@ async function pollTelegramUpdates() {
           }
           await handleTelegramUpdate(update);
         }
+      } else if (!res) {
+        consecutiveErrors++;
+        // If connection reset or failed, wait progressively (1s -> 2s -> 4s max 8s) before retry
+        const backoff = Math.min(consecutiveErrors * 1500, 8000);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
       }
-    } catch (e) {
-      console.error('Telegram polling error:', e);
+    } catch (e: any) {
+      consecutiveErrors++;
+      // Quietly continue on loop errors
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -488,13 +532,13 @@ async function handleTelegramUpdate(update: any) {
   ) {
     await sendAuthCodeMessage(chatId, fromUser);
   } else if (text.startsWith('/bakiye')) {
-    const isKajju = fromUser.username?.toLowerCase() === 'kajju66' || String(fromUser.id) === '894405473';
+    const isSuperAdmin = String(fromUser.id) === '894405473';
     await telegramApiCall('sendMessage', {
       chat_id: chatId,
       text:
         `💰 <b>ShelbyOnline Bakiye Bilgisi</b>\n\n` +
         `👤 Kullanıcı: <b>@${fromUser.username || fromUser.first_name}</b>\n` +
-        `💎 Rol: <b>${isKajju ? '👑 Süper Yönetici' : '🌟 Üye'}</b>\n` +
+        `💎 Rol: <b>${isSuperAdmin ? '👑 Süper Yönetici' : '🌟 Üye'}</b>\n` +
         `🎁 Günlük Çark ve Mağazada harcayabileceğiniz coinlerinizi görmek için web sitesine giriş yapınız.`,
       parse_mode: 'HTML',
     });
@@ -518,6 +562,237 @@ async function handleTelegramUpdate(update: any) {
 let cachedPortalData: any = null;
 let cachedPortalDataTime = 0;
 const PORTAL_CACHE_TTL_MS = 20000; // 20 seconds cache for high responsiveness, instantly invalidated on writes
+
+// In-memory & local disk cache for SEO & Site Settings
+const LOCAL_SETTINGS_FILE = path.join(process.cwd(), '.site_settings_cache.json');
+let cachedSiteSettings: any = null;
+let cachedSiteSettingsTime = 0;
+const SITE_SETTINGS_CACHE_TTL = 15000; // 15 seconds
+
+function readLocalSettingsCache(): any | null {
+  try {
+    if (fs.existsSync(LOCAL_SETTINGS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_SETTINGS_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch {}
+  return null;
+}
+
+function writeLocalSettingsCache(data: any): void {
+  try {
+    fs.writeFileSync(LOCAL_SETTINGS_FILE, JSON.stringify(data), 'utf-8');
+  } catch {}
+}
+
+const DEFAULT_SEO_SETTINGS = {
+  site_name: 'Shelby Online',
+  site_title: 'Shelby Online',
+  meta_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
+  site_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
+  og_title: 'Shelby Online | Güncel Kampanyalar',
+  og_description: 'En güncel kampanyaları ve bonusları keşfet.',
+  og_image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1200&h=630&q=80',
+  og_url: 'https://shelbyonline.com',
+  og_site_name: 'Shelby Online',
+  favicon_url: '',
+  twitter_card: 'summary_large_image',
+};
+
+let isRevalidatingSettings = false;
+
+async function getAuthoritativeSiteSettings(): Promise<any> {
+  const now = Date.now();
+  if (cachedSiteSettings && now - cachedSiteSettingsTime < SITE_SETTINGS_CACHE_TTL) {
+    return cachedSiteSettings;
+  }
+
+  // Load from local disk cache if memory is empty
+  if (!cachedSiteSettings) {
+    const localData = readLocalSettingsCache();
+    if (localData && typeof localData === 'object') {
+      cachedSiteSettings = { ...DEFAULT_SEO_SETTINGS, ...localData };
+      cachedSiteSettingsTime = now;
+    }
+  }
+
+  // Background revalidation function
+  const revalidate = async () => {
+    if (isRevalidatingSettings) return;
+    isRevalidatingSettings = true;
+    try {
+      const headers = {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      };
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/site_settings?select=*`, {
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+      if (resp.ok) {
+        const rows = await resp.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          const generalRow = rows.find((r: any) => r.setting_key === 'general') || rows[0];
+          let val = generalRow?.setting_value;
+          if (typeof val === 'string') {
+            try {
+              val = JSON.parse(val);
+            } catch {
+              val = {};
+            }
+          }
+          const merged = {
+            ...DEFAULT_SEO_SETTINGS,
+            ...(generalRow || {}),
+            ...(typeof val === 'object' && val !== null ? val : {}),
+          };
+          cachedSiteSettings = merged;
+          cachedSiteSettingsTime = Date.now();
+          writeLocalSettingsCache(merged);
+        }
+      }
+    } catch {
+      // Quiet background failure
+    } finally {
+      isRevalidatingSettings = false;
+    }
+  };
+
+  if (cachedSiteSettings) {
+    // If cache expired, trigger background revalidation without blocking caller
+    revalidate().catch(() => {});
+    return cachedSiteSettings;
+  }
+
+  // Initial boot with no cache: wait once for revalidation
+  await revalidate();
+
+  if (!cachedSiteSettings) {
+    cachedSiteSettings = { ...DEFAULT_SEO_SETTINGS };
+    cachedSiteSettingsTime = now;
+  }
+  return cachedSiteSettings;
+}
+
+function escapeHtml(str: string | undefined | null): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function injectDynamicSeoTags(html: string, req: express.Request | string, seo: any): string {
+  const reqPath = typeof req === 'string' ? req : req.path || '/';
+  const proto = typeof req !== 'string' ? (req.headers['x-forwarded-proto'] as string) || 'https' : 'https';
+  const hostHeader =
+    typeof req !== 'string'
+      ? (req.headers['x-forwarded-host'] as string) || req.headers.host || 'shelbyonline.com'
+      : 'shelbyonline.com';
+
+  const siteTitle = seo.site_title || seo.site_name || 'Shelby Online';
+  const metaDesc = seo.meta_description || seo.site_description || 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.';
+  const ogTitle = seo.og_title || siteTitle;
+  const ogDesc = seo.og_description || metaDesc;
+
+  // Resolve base canonical URL
+  let canonicalBase = 'https://shelbyonline.com';
+  if (seo.og_url && (seo.og_url.startsWith('http://') || seo.og_url.startsWith('https://'))) {
+    canonicalBase = seo.og_url;
+  } else if (typeof req !== 'string' && req.headers) {
+    const fHost = req.headers['x-forwarded-host'] || req.headers.host;
+    if (fHost && !fHost.includes('localhost') && !fHost.includes('127.0.0.1')) {
+      canonicalBase = `${proto}://${fHost}`;
+    }
+  }
+
+  const rawOgUrl = canonicalBase;
+
+  // Compute version hash for cache-busting on social media crawlers
+  const vHash = (seo.updated_at ? new Date(seo.updated_at).getTime() : Date.now()).toString(36);
+
+  // Resolve OG Image format and URL
+  let rawOgImage = seo.og_image || DEFAULT_SEO_SETTINGS.og_image;
+  let resolvedOgImage = rawOgImage;
+  let ogMimeType = 'image/jpeg';
+
+  if (rawOgImage) {
+    if (rawOgImage.startsWith('data:image/png')) {
+      ogMimeType = 'image/png';
+      resolvedOgImage = `${canonicalBase.replace(/\/$/, '')}/api/seo/og-image.png?v=${vHash}`;
+    } else if (rawOgImage.startsWith('data:image/webp')) {
+      ogMimeType = 'image/webp';
+      resolvedOgImage = `${canonicalBase.replace(/\/$/, '')}/api/seo/og-image.webp?v=${vHash}`;
+    } else if (rawOgImage.startsWith('data:image/') || rawOgImage.startsWith('/')) {
+      ogMimeType = 'image/jpeg';
+      resolvedOgImage = `${canonicalBase.replace(/\/$/, '')}/api/seo/og-image.jpg?v=${vHash}`;
+    } else if (rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')) {
+      // Remote image URL
+      resolvedOgImage = rawOgImage;
+      if (rawOgImage.endsWith('.png')) ogMimeType = 'image/png';
+      else if (rawOgImage.endsWith('.webp')) ogMimeType = 'image/webp';
+      else ogMimeType = 'image/jpeg';
+    }
+  }
+
+  const ogUrl = reqPath && reqPath !== '/' ? `${rawOgUrl.replace(/\/$/, '')}${reqPath}` : rawOgUrl;
+  const ogSiteName = seo.og_site_name || seo.site_name || 'Shelby Online';
+  const twitterCard = seo.twitter_card || 'summary_large_image';
+  const faviconUrl = seo.favicon_url || seo.logo_url || '';
+  const isAdmin = reqPath.startsWith('/admin');
+
+  // Strip existing title, meta description, og:*, twitter:*, robots, and favicon link tags
+  let cleaned = html
+    .replace(/<title>[^<]*<\/title>/gi, '')
+    .replace(/<meta\s+name=["']description["'][^>]*>/gi, '')
+    .replace(/<meta\s+property=["']og:[^"']+["'][^>]*>/gi, '')
+    .replace(/<meta\s+name=["']twitter:[^"']+["'][^>]*>/gi, '')
+    .replace(/<meta\s+name=["']robots["'][^>]*>/gi, '');
+
+  if (faviconUrl) {
+    cleaned = cleaned.replace(/<link\s+rel=["'](shortcut )?icon["'][^>]*>/gi, '')
+      .replace(/<link\s+rel=["']apple-touch-icon["'][^>]*>/gi, '');
+  }
+
+  const dynamicTags = [
+    `    <title>${escapeHtml(siteTitle)}</title>`,
+    `    <meta name="description" content="${escapeHtml(metaDesc)}" />`,
+    `    <meta property="og:type" content="website" />`,
+    `    <meta property="og:site_name" content="${escapeHtml(ogSiteName)}" />`,
+    `    <meta property="og:title" content="${escapeHtml(ogTitle)}" />`,
+    `    <meta property="og:description" content="${escapeHtml(ogDesc)}" />`,
+    `    <meta property="og:image" content="${escapeHtml(resolvedOgImage)}" />`,
+    `    <meta property="og:image:secure_url" content="${escapeHtml(resolvedOgImage)}" />`,
+    `    <meta property="og:image:type" content="${escapeHtml(ogMimeType)}" />`,
+    `    <meta property="og:image:width" content="1200" />`,
+    `    <meta property="og:image:height" content="630" />`,
+    `    <meta property="og:image:alt" content="${escapeHtml(ogTitle)}" />`,
+    `    <meta property="og:url" content="${escapeHtml(ogUrl)}" />`,
+    `    <meta name="twitter:card" content="${escapeHtml(twitterCard)}" />`,
+    `    <meta name="twitter:title" content="${escapeHtml(ogTitle)}" />`,
+    `    <meta name="twitter:description" content="${escapeHtml(ogDesc)}" />`,
+    `    <meta name="twitter:image" content="${escapeHtml(resolvedOgImage)}" />`,
+    `    <meta name="twitter:image:src" content="${escapeHtml(resolvedOgImage)}" />`,
+    isAdmin
+      ? `    <meta name="robots" content="noindex,nofollow" />`
+      : `    <meta name="robots" content="index,follow" />`,
+    faviconUrl
+      ? `    <link rel="icon" href="${escapeHtml(faviconUrl)}" />\n    <link rel="apple-touch-icon" href="${escapeHtml(faviconUrl)}" />`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  // Inject right after <head> or before </head>
+  if (cleaned.includes('<head>')) {
+    return cleaned.replace('<head>', `<head>\n${dynamicTags}`);
+  } else if (cleaned.includes('</head>')) {
+    return cleaned.replace('</head>', `${dynamicTags}\n  </head>`);
+  }
+  return dynamicTags + '\n' + cleaned;
+}
 
 const serverCustomSponsors = new Map<string, any>();
 const serverDeletedSponsorIds = new Set<string>();
@@ -569,6 +844,8 @@ async function fetchPortalDataFromSupabase() {
     giveaways,
     store_products,
     giveaway_entries,
+    sponsor_clicks,
+    banner_clicks,
   ] = await Promise.all([
     fetchWithTimeout(`${SUPABASE_URL}/rest/v1/site_settings?select=*`),
     fetchWithTimeout(`${SUPABASE_URL}/rest/v1/sponsors?select=*&order=sort_order.asc`),
@@ -579,7 +856,31 @@ async function fetchPortalDataFromSupabase() {
     fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaways?select=*&order=created_at.desc`),
     fetchWithTimeout(`${SUPABASE_URL}/rest/v1/store_products?select=*&order=sort_order.asc`),
     fetchWithTimeout(`${SUPABASE_URL}/rest/v1/giveaway_entries?select=*`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/sponsor_clicks?select=sponsor_id`),
+    fetchWithTimeout(`${SUPABASE_URL}/rest/v1/banner_clicks?select=banner_id`),
   ]);
+
+  // Aggregate click counts from raw sponsor_clicks table
+  const sponsorClicksCountMap = new Map<string, number>();
+  if (Array.isArray(sponsor_clicks)) {
+    for (const sc of sponsor_clicks) {
+      if (sc && sc.sponsor_id) {
+        const sid = String(sc.sponsor_id);
+        sponsorClicksCountMap.set(sid, (sponsorClicksCountMap.get(sid) || 0) + 1);
+      }
+    }
+  }
+
+  // Aggregate click counts from banner_clicks table
+  const bannerClicksCountMap = new Map<string, number>();
+  if (Array.isArray(banner_clicks)) {
+    for (const bc of banner_clicks) {
+      if (bc && bc.banner_id) {
+        const bid = String(bc.banner_id);
+        bannerClicksCountMap.set(bid, (bannerClicksCountMap.get(bid) || 0) + 1);
+      }
+    }
+  }
 
   // Merge Supabase sponsors, remove deleted ids
   const remoteSponsors = Array.isArray(sponsors) ? sponsors : [];
@@ -588,21 +889,44 @@ async function fetchPortalDataFromSupabase() {
   for (const sp of remoteSponsors) {
     const spId = String(sp.id);
     if (serverDeletedSponsorIds.has(spId)) continue;
+    
+    const clickCountFromTable = (sponsorClicksCountMap.get(spId) || 0) + (sp.slug ? (sponsorClicksCountMap.get(sp.slug) || 0) : 0);
+    const existingCount = Number(sp.clicks_count || sp.clicks || 0);
+    const resolvedClicks = Math.max(existingCount, clickCountFromTable);
+
+    const mergedSp = {
+      ...sp,
+      clicks_count: resolvedClicks,
+    };
+
     if (serverCustomSponsors.has(spId)) {
-      finalSponsorsMap.set(spId, { ...sp, ...serverCustomSponsors.get(spId) });
+      finalSponsorsMap.set(spId, { ...mergedSp, ...serverCustomSponsors.get(spId), clicks_count: Math.max(resolvedClicks, Number(serverCustomSponsors.get(spId)?.clicks_count || 0)) });
     } else {
-      finalSponsorsMap.set(spId, sp);
+      finalSponsorsMap.set(spId, mergedSp);
     }
   }
 
   for (const [id, customSp] of serverCustomSponsors.entries()) {
     if (serverDeletedSponsorIds.has(id)) continue;
     if (!finalSponsorsMap.has(id)) {
-      finalSponsorsMap.set(id, customSp);
+      const clickCountFromTable = (sponsorClicksCountMap.get(id) || 0) + (customSp.slug ? (sponsorClicksCountMap.get(customSp.slug) || 0) : 0);
+      finalSponsorsMap.set(id, {
+        ...customSp,
+        clicks_count: Math.max(Number(customSp.clicks_count || 0), clickCountFromTable),
+      });
     }
   }
 
   const finalSponsorsList = Array.from(finalSponsorsMap.values());
+
+  const mappedBanners = Array.isArray(banners) ? banners.map((b: any) => {
+    const bId = String(b.id);
+    const clickCount = bannerClicksCountMap.get(bId) || 0;
+    return {
+      ...b,
+      clicks_count: Math.max(Number(b.clicks_count || b.clicks || 0), clickCount),
+    };
+  }) : [];
 
   // Merge Supabase entries with server in-memory entries
   const remoteEntries = Array.isArray(giveaway_entries) ? giveaway_entries : [];
@@ -655,7 +979,7 @@ async function fetchPortalDataFromSupabase() {
     settings,
     sponsors: finalSponsorsList,
     hero_slides,
-    banners,
+    banners: mappedBanners,
     social_links,
     wheel_rewards,
     giveaways: formattedGiveaways,
@@ -714,7 +1038,149 @@ app.get('/api/portal/data', async (req, res) => {
 app.post('/api/portal/invalidate-cache', (req, res) => {
   cachedPortalData = null;
   cachedPortalDataTime = 0;
+  cachedSiteSettings = null;
+  cachedSiteSettingsTime = 0;
   res.json({ status: 'ok', message: 'Cache invalidated' });
+});
+
+// SEO & Site Meta Settings Fetch Endpoint
+app.get('/api/seo/current', async (req, res) => {
+  try {
+    const seo = await getAuthoritativeSiteSettings();
+    res.json({
+      success: true,
+      settings: seo,
+      preview: {
+        title: seo.site_title || seo.site_name,
+        meta_description: seo.meta_description || seo.site_description,
+        og_title: seo.og_title || seo.site_title,
+        og_description: seo.og_description || seo.meta_description,
+        og_image: seo.og_image,
+        og_url: seo.og_url,
+        og_site_name: seo.og_site_name || seo.site_name,
+        favicon_url: seo.favicon_url,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error fetching SEO settings:', err);
+    res.status(500).json({ success: false, message: err?.message || 'SEO ayarları alınamadı.' });
+  }
+});
+
+// SEO & Site Meta Settings Save Endpoint
+app.post('/api/seo/save', async (req, res) => {
+  try {
+    const incoming = req.body;
+    if (!incoming || typeof incoming !== 'object') {
+      return res.status(400).json({ success: false, message: 'Geçersiz veri formatı.' });
+    }
+
+    const current = await getAuthoritativeSiteSettings();
+    const merged = {
+      ...current,
+      ...incoming,
+      site_title: incoming.site_title || incoming.site_name || current.site_title,
+      meta_description: incoming.meta_description || incoming.site_description || current.meta_description,
+      og_title: incoming.og_title || incoming.site_title || current.og_title,
+      og_description: incoming.og_description || incoming.meta_description || current.og_description,
+      og_image: incoming.og_image || current.og_image,
+      og_url: incoming.og_url || current.og_url,
+      og_site_name: incoming.og_site_name || incoming.site_name || current.og_site_name,
+      favicon_url: incoming.favicon_url !== undefined ? incoming.favicon_url : current.favicon_url,
+      twitter_card: incoming.twitter_card || current.twitter_card || 'summary_large_image',
+      updated_at: new Date().toISOString(),
+    };
+
+    // Immediately persist to local disk cache and memory so user changes are 100% saved
+    writeLocalSettingsCache(merged);
+    cachedSiteSettings = merged;
+    cachedSiteSettingsTime = Date.now();
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    // Non-blocking background sync to Supabase (safe & resilient)
+    (async () => {
+      try {
+        const headers = {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal,resolution=merge-duplicates',
+        };
+
+        const upsertResp = await fetch(`${SUPABASE_URL}/rest/v1/site_settings`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            setting_key: 'general',
+            setting_value: merged,
+            updated_at: new Date().toISOString(),
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (!upsertResp.ok) {
+          await fetch(`${SUPABASE_URL}/rest/v1/site_settings?setting_key=eq.general`, {
+            method: 'PATCH',
+            headers: {
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              setting_value: merged,
+              updated_at: new Date().toISOString(),
+            }),
+            signal: AbortSignal.timeout(8000),
+          });
+        }
+      } catch {
+        // Fallback: settings are already safely persisted to local disk & memory cache
+      }
+    })().catch(() => {});
+
+    return res.json({
+      success: true,
+      message: 'SEO ve link önizleme ayarları başarıyla kaydedildi.',
+      settings: merged,
+    });
+  } catch (err: any) {
+    console.error('Error saving SEO settings:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Kaydetme hatası' });
+  }
+});
+
+// Public Authoritative OG Image Endpoint for Social Media Crawlers (Telegram, WhatsApp, Discord, X)
+app.get(['/api/seo/og-image', '/api/seo/og-image.jpg', '/api/seo/og-image.png', '/api/seo/og-image.webp'], async (req, res) => {
+  try {
+    const seo = await getAuthoritativeSiteSettings();
+    const rawImage = seo.og_image || DEFAULT_SEO_SETTINGS.og_image;
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    if (rawImage && rawImage.startsWith('data:image/')) {
+      const match = rawImage.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (match) {
+        const mimeType = match[1];
+        const base64Data = match[2];
+        const buffer = Buffer.from(base64Data, 'base64');
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Length', buffer.length);
+        res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+        return res.send(buffer);
+      }
+    }
+
+    if (rawImage && (rawImage.startsWith('http://') || rawImage.startsWith('https://'))) {
+      return res.redirect(302, rawImage);
+    }
+
+    return res.redirect(302, DEFAULT_SEO_SETTINGS.og_image);
+  } catch (err: any) {
+    console.error('OG Image endpoint error:', err);
+    return res.redirect(302, DEFAULT_SEO_SETTINGS.og_image);
+  }
 });
 
 // Admin Sponsor Save / Upsert Endpoint (Server-Side authoritative database write with self-healing column fallbacks)
@@ -993,6 +1459,245 @@ app.post('/api/sponsors/delete', async (req, res) => {
   }
 });
 
+// Sponsor Click Tracking Endpoint
+app.post(['/api/sponsors/click', '/api/sponsors/:id/click'], async (req, res) => {
+  try {
+    const idParam = req.params?.id;
+    const { id: bodyId, slug, user_id, referrer } = req.body || {};
+    const sponsorTarget = String(idParam || bodyId || slug || '').trim();
+
+    if (!sponsorTarget) {
+      return res.status(400).json({ success: false, message: 'Sponsor ID veya Slug gereklidir.' });
+    }
+
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
+
+    // 1. Find matching sponsor row from Supabase
+    let matchedSponsor: any = null;
+    try {
+      const matchRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/sponsors?or=(id.eq.${encodeURIComponent(sponsorTarget)},slug.eq.${encodeURIComponent(sponsorTarget)})&limit=1`,
+        { headers }
+      );
+      if (matchRes.ok) {
+        const rows = await matchRes.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          matchedSponsor = rows[0];
+        }
+      }
+    } catch {}
+
+    const resolvedSponsorId = matchedSponsor?.id ? String(matchedSponsor.id) : sponsorTarget;
+    const currentClicks = Number(matchedSponsor?.clicks_count || matchedSponsor?.clicks || 0);
+    const newClicks = currentClicks + 1;
+
+    // 2. Insert click event into sponsor_clicks table
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/sponsor_clicks`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          sponsor_id: resolvedSponsorId,
+          user_id: user_id || null,
+          referrer: referrer || req.headers.referer || req.headers.origin || null,
+        }),
+      });
+    } catch (e) {
+      console.warn('Supabase sponsor_clicks insert warning:', e);
+    }
+
+    // 3. Atomically update clicks_count in sponsors table
+    if (matchedSponsor?.id) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(matchedSponsor.id)}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ clicks_count: newClicks }),
+        });
+      } catch (e) {
+        console.warn('Supabase sponsor clicks_count patch warning:', e);
+      }
+    }
+
+    // 4. Update in-memory server cache
+    if (serverCustomSponsors.has(resolvedSponsorId)) {
+      const existing = serverCustomSponsors.get(resolvedSponsorId);
+      serverCustomSponsors.set(resolvedSponsorId, {
+        ...existing,
+        clicks_count: Math.max(Number(existing.clicks_count || 0) + 1, newClicks),
+      });
+    }
+
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({
+      success: true,
+      sponsor_id: resolvedSponsorId,
+      clicks_count: newClicks,
+    });
+  } catch (err: any) {
+    console.error('Error tracking sponsor click:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Tıklama kaydedilemedi.' });
+  }
+});
+
+// Full Click Synchronization Endpoint (Recalculates all clicks from raw sponsor_clicks)
+app.post('/api/sponsors/sync-clicks', async (_req, res) => {
+  try {
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    };
+
+    const [clicksRes, sponsorsRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/sponsor_clicks?select=*`, { headers }).then((r) => r.json()),
+      fetch(`${SUPABASE_URL}/rest/v1/sponsors?select=*`, { headers }).then((r) => r.json()),
+    ]);
+
+    const clicksArray = Array.isArray(clicksRes) ? clicksRes : [];
+    const sponsorsArray = Array.isArray(sponsorsRes) ? sponsorsRes : [];
+
+    const clicksBySponsor = new Map<string, number>();
+    for (const c of clicksArray) {
+      if (c && c.sponsor_id) {
+        const sid = String(c.sponsor_id);
+        clicksBySponsor.set(sid, (clicksBySponsor.get(sid) || 0) + 1);
+      }
+    }
+
+    const updatedList: any[] = [];
+    for (const sp of sponsorsArray) {
+      const sid = String(sp.id);
+      const directCount = clicksBySponsor.get(sid) || 0;
+      const slugCount = sp.slug ? (clicksBySponsor.get(sp.slug) || 0) : 0;
+      const existingClicks = Number(sp.clicks_count || sp.clicks || 0);
+      const totalCount = Math.max(directCount + slugCount, existingClicks);
+
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(sid)}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ clicks_count: totalCount }),
+        });
+      } catch {}
+
+      updatedList.push({
+        id: sid,
+        name: sp.name,
+        clicks_count: totalCount,
+      });
+    }
+
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({
+      success: true,
+      message: 'Sponsor tıklamaları başarıyla senkronize edildi.',
+      total_recorded_events: clicksArray.length,
+      sponsors: updatedList,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/sponsors/sync-clicks:', err);
+    return res.status(500).json({ success: false, message: 'Senkronizasyon hatası' });
+  }
+});
+
+// Banner Click Tracking Endpoint
+app.post(['/api/banners/click', '/api/banners/:id/click'], async (req, res) => {
+  try {
+    const idParam = req.params?.id;
+    const { id: bodyId, user_id, referrer } = req.body || {};
+    const bannerId = String(idParam || bodyId || '').trim();
+
+    if (!bannerId) {
+      return res.status(400).json({ success: false, message: 'Banner ID gereklidir.' });
+    }
+
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    // Insert into banner_clicks
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/banner_clicks`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          banner_id: bannerId,
+          user_id: user_id || null,
+          referrer: referrer || req.headers.referer || null,
+        }),
+      });
+    } catch {}
+
+    cachedPortalData = null;
+    cachedPortalDataTime = 0;
+
+    return res.json({ success: true, banner_id: bannerId });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Hata' });
+  }
+});
+
+// Outbound Affiliate Redirect Routes (/go/:slug and /r/:slug)
+app.get(['/go/:slug', '/r/:slug'], async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    };
+
+    const matchRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/sponsors?or=(slug.eq.${encodeURIComponent(slug)},id.eq.${encodeURIComponent(slug)})&limit=1`,
+      { headers }
+    );
+
+    if (matchRes.ok) {
+      const rows = await matchRes.json();
+      if (Array.isArray(rows) && rows.length > 0) {
+        const sponsor = rows[0];
+        const targetUrl = sponsor.website_url || sponsor.direct_url || sponsor.url || '/';
+
+        // Record click non-blockingly
+        fetch(`${SUPABASE_URL}/rest/v1/sponsor_clicks`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sponsor_id: String(sponsor.id),
+            referrer: req.headers.referer || 'direct_redirect',
+          }),
+        }).catch(() => {});
+
+        fetch(`${SUPABASE_URL}/rest/v1/sponsors?id=eq.${encodeURIComponent(sponsor.id)}`, {
+          method: 'PATCH',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clicks_count: Number(sponsor.clicks_count || 0) + 1,
+          }),
+        }).catch(() => {});
+
+        return res.redirect(302, targetUrl);
+      }
+    }
+
+    return res.redirect(302, '/');
+  } catch {
+    return res.redirect(302, '/');
+  }
+});
+
 // Admin Supabase Diagnostics & Live Test Endpoint
 app.get('/api/sponsors/test-connection', async (_req, res) => {
   const result: any = {
@@ -1096,7 +1801,11 @@ app.post('/api/giveaways/save', async (req, res) => {
     };
 
     const targetId = giveaway.id || `giv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const isCompleted = Boolean(giveaway.is_completed || giveaway.winner_username);
+    const rawEndDate = giveaway.end_at || giveaway.end_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const isEndDateInFuture = new Date(rawEndDate).getTime() > Date.now();
+    const isCompleted = giveaway.is_completed !== undefined
+      ? Boolean(giveaway.is_completed)
+      : (isEndDateInFuture ? false : Boolean(giveaway.winner_username));
 
     const basePayload: any = {
       id: targetId,
@@ -1105,7 +1814,7 @@ app.post('/api/giveaways/save', async (req, res) => {
       image_url: giveaway.image_url || 'https://images.unsplash.com/photo-1606813907291-d86efa9b94db?auto=format&fit=crop&w=800&h=450&q=80',
       prize: giveaway.prize_details || giveaway.prize || 'Ödül',
       total_winners: Number(giveaway.winner_count || giveaway.total_winners || 1),
-      end_date: giveaway.end_at || giveaway.end_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      end_date: rawEndDate,
       is_active: giveaway.active !== false && giveaway.is_active !== false,
       created_at: giveaway.start_at || giveaway.created_at || new Date().toISOString(),
       winners: giveaway.winner_username
@@ -1128,24 +1837,24 @@ app.post('/api/giveaways/save', async (req, res) => {
 
     // Attempt upsert to Supabase
     try {
-      const { error: upsertErr } = await fetch(`${SUPABASE_URL}/rest/v1/giveaways`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/giveaways`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify(extendedPayload),
-        signal: AbortSignal.timeout(4000),
-      }).then((r) => r.json().then((d) => ({ error: !r.ok ? d : null })));
+        signal: AbortSignal.timeout(10000),
+      });
 
-      if (upsertErr) {
+      if (!response.ok) {
         // Fallback to base payload
         await fetch(`${SUPABASE_URL}/rest/v1/giveaways`, {
           method: 'POST',
           headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
           body: JSON.stringify(basePayload),
-          signal: AbortSignal.timeout(4000),
-        });
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {});
       }
     } catch (dbErr) {
-      console.warn('Supabase giveaway upsert warning:', dbErr);
+      console.log('Supabase giveaway upsert handled:', dbErr instanceof Error ? dbErr.message : 'timeout');
     }
 
     const finalGiveaway = {
@@ -1268,14 +1977,14 @@ app.post('/api/giveaways/join', async (req, res) => {
     try {
       const gCheckRes = await fetch(
         `${SUPABASE_URL}/rest/v1/giveaways?id=eq.${encodeURIComponent(giveaway_id)}`,
-        { headers, signal: AbortSignal.timeout(3000) }
+        { headers, signal: AbortSignal.timeout(8000) }
       );
       if (gCheckRes.ok) {
         const gList = await gCheckRes.json();
         if (Array.isArray(gList) && gList.length > 0) {
           const targetG = gList[0];
           const isExpired =
-            targetG.is_completed ||
+            (targetG.is_completed && targetG.winner_username) ||
             (targetG.end_at && new Date(targetG.end_at).getTime() <= Date.now()) ||
             (targetG.end_date && new Date(targetG.end_date).getTime() <= Date.now());
           if (isExpired) {
@@ -1295,7 +2004,7 @@ app.post('/api/giveaways/join', async (req, res) => {
     try {
       const checkRes = await fetch(
         `${SUPABASE_URL}/rest/v1/giveaway_entries?giveaway_id=eq.${encodeURIComponent(giveaway_id)}&user_id=eq.${encodeURIComponent(user_id)}`,
-        { headers, signal: AbortSignal.timeout(3000) }
+        { headers, signal: AbortSignal.timeout(8000) }
       );
       if (checkRes.ok) {
         const existing = await checkRes.json();
@@ -1311,7 +2020,7 @@ app.post('/api/giveaways/join', async (req, res) => {
     try {
       const gExistsRes = await fetch(
         `${SUPABASE_URL}/rest/v1/giveaways?id=eq.${encodeURIComponent(giveaway_id)}&select=id`,
-        { headers, signal: AbortSignal.timeout(3000) }
+        { headers, signal: AbortSignal.timeout(8000) }
       );
       const gList = gExistsRes.ok ? await gExistsRes.json() : [];
       if (!Array.isArray(gList) || gList.length === 0) {
@@ -1336,7 +2045,7 @@ app.post('/api/giveaways/join', async (req, res) => {
           method: 'POST',
           headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=minimal' },
           body: JSON.stringify(autoGiveawayPayload),
-          signal: AbortSignal.timeout(4000),
+          signal: AbortSignal.timeout(8000),
         });
       }
     } catch (gErr) {
@@ -1835,7 +2544,7 @@ app.get('/api/telegram/avatar-proxy', async (req, res) => {
 
   try {
     const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`;
-    const imgRes = await fetch(fileUrl);
+    const imgRes = await fetch(fileUrl, { signal: AbortSignal.timeout(8000) });
     if (!imgRes.ok) {
       return res.redirect('https://ui-avatars.com/api/?name=Telegram+User&background=24A1DE&color=fff');
     }
@@ -1845,7 +2554,6 @@ app.get('/api/telegram/avatar-proxy', async (req, res) => {
     const buffer = await imgRes.arrayBuffer();
     return res.send(Buffer.from(buffer));
   } catch (err) {
-    console.error('Avatar proxy error:', err);
     return res.redirect('https://ui-avatars.com/api/?name=Telegram+User&background=24A1DE&color=fff');
   }
 });
@@ -1905,22 +2613,11 @@ app.post('/api/telegram/verify-code', async (req, res) => {
 
   const cleanCode = String(code).trim().replace(/\s+/g, '').toUpperCase();
 
-  // Admin backdoor codes
-  if (cleanCode === 'KAJJU66' || cleanCode === '@KAJJU66' || cleanCode === 'ADMIN') {
-    const adminUser = {
-      id: '894405473',
-      first_name: 'Kajju',
-      last_name: 'Admin',
-      username: 'kajju66',
-      role: 'super_admin',
-      auth_date: Math.floor(Date.now() / 1000),
-      photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80',
-    };
-    await syncTelegramUserToSupabase(adminUser);
-    return res.json({
-      success: true,
-      message: '👑 Yönetici girişi başarıyla onaylandı!',
-      user: adminUser,
+  // Validate format: strictly 6-digit numeric OTP
+  if (!/^\d{6}$/.test(cleanCode)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Geçersiz kod biçimi. Lütfen Telegram botunun verdiği 6 haneli güvenlik kodunu giriniz.',
     });
   }
 
@@ -2018,18 +2715,824 @@ app.post('/api/telegram/verify-code', async (req, res) => {
   });
 });
 
-// 4. Sync Profile Directly with Supabase Database
+// 4. Dynamic Telegram Avatar Endpoint (Live streaming with caching)
+app.get('/api/telegram/avatar/:userId', async (req, res) => {
+  const { userId } = req.params;
+  const numericId = Number(userId.replace(/\D/g, ''));
+  if (!numericId || !TELEGRAM_BOT_TOKEN) {
+    return res.redirect('https://ui-avatars.com/api/?name=Telegram+User&background=24A1DE&color=fff&size=256');
+  }
+
+  try {
+    const photosRes = await telegramApiCall('getUserProfilePhotos', {
+      user_id: numericId,
+      limit: 1,
+    });
+
+    if (
+      photosRes &&
+      photosRes.ok &&
+      photosRes.result &&
+      photosRes.result.photos &&
+      photosRes.result.photos.length > 0
+    ) {
+      const photoArray = photosRes.result.photos[0];
+      const bestPhoto = photoArray[photoArray.length - 1] || photoArray[0];
+      if (bestPhoto && bestPhoto.file_id) {
+        const fileRes = await telegramApiCall('getFile', { file_id: bestPhoto.file_id });
+        if (fileRes && fileRes.ok && fileRes.result && fileRes.result.file_path) {
+          const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileRes.result.file_path}`;
+          try {
+            const imgFetch = await fetch(fileUrl, { signal: AbortSignal.timeout(8000) });
+            if (imgFetch.ok) {
+              const contentType = imgFetch.headers.get('content-type') || 'image/jpeg';
+              res.setHeader('Content-Type', contentType);
+              res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=43200');
+              const arrayBuffer = await imgFetch.arrayBuffer();
+              return res.send(Buffer.from(arrayBuffer));
+            }
+          } catch (fetchErr) {
+            // Fallback gracefully below
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`Error in avatar endpoint for user ${numericId}:`, err);
+  }
+
+  return res.redirect(`https://ui-avatars.com/api/?name=TG+${numericId.toString().slice(-4)}&background=24A1DE&color=fff&size=256`);
+});
+
+// 5. Sync Profile Directly with Supabase Database and Live Telegram API
 app.post('/api/telegram/sync-profile', async (req, res) => {
   try {
-    const { user } = req.body;
-    if (!user) {
-      return res.status(400).json({ status: 'error', message: 'User data required' });
+    const body = req.body || {};
+    const tgUser = body.user || body;
+    const rawId = tgUser.telegram_id || tgUser.id || body.telegram_id || body.id;
+    const numericId = rawId ? Number(String(rawId).replace(/\D/g, '')) : undefined;
+    const username = tgUser.telegram_username || tgUser.username || body.telegram_username || body.username || '';
+
+    let photoUrl = tgUser.photo_url || tgUser.avatar_url || body.photo_url;
+    if (numericId && (!photoUrl || photoUrl.includes('ui-avatars.com') || photoUrl.includes('unsplash.com'))) {
+      const livePhoto = await getTelegramUserProfilePhoto(numericId, username || `TG_${numericId}`);
+      if (livePhoto) {
+        photoUrl = livePhoto;
+      }
     }
-    const synced = await syncTelegramUserToSupabase(user);
-    res.json({ status: 'ok', profile: synced });
+
+    const userDataToSync = {
+      id: numericId || rawId || 'unknown',
+      first_name: tgUser.telegram_first_name || tgUser.first_name || body.first_name || username || 'Shelby',
+      last_name: tgUser.telegram_last_name || tgUser.last_name || body.last_name || '',
+      username: username ? username.replace('@', '') : undefined,
+      photo_url: photoUrl,
+      coins: tgUser.coins ?? tgUser.coin_balance ?? body.coins,
+    };
+
+    const synced = await syncTelegramUserToSupabase(userDataToSync);
+
+    res.json({
+      success: true,
+      status: 'ok',
+      photo_url: photoUrl,
+      telegram_id: String(userDataToSync.id),
+      telegram_username: userDataToSync.username,
+      profile: synced,
+    });
   } catch (err: any) {
     console.error('Error in sync-profile endpoint:', err);
-    res.status(500).json({ status: 'error', message: err?.message || 'Sync failed' });
+    res.status(500).json({ success: false, status: 'error', message: err?.message || 'Sync failed' });
+  }
+});
+
+// ======================== VISITOR & ACTIVITY TRACKING ENGINE ========================
+
+interface ServerVisitorLog {
+  id: string;
+  session_id: string;
+  visitor_id: string;
+  user_id?: string | null;
+  username?: string | null;
+  is_authenticated?: boolean;
+  device_type: 'mobile' | 'desktop' | 'tablet' | 'bot';
+  os: string;
+  os_version?: string;
+  browser: string;
+  browser_version?: string;
+  screen_resolution?: string;
+  ip_address?: string;
+  path: string;
+  page_title?: string;
+  referrer?: string;
+  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'heartbeat' | 'other';
+  action_name?: string;
+  details?: Record<string, any>;
+  duration_seconds?: number;
+  is_online?: boolean;
+  last_seen_at?: string;
+  created_at: string;
+}
+
+interface ServerLiveSession {
+  session_id: string;
+  visitor_id: string;
+  user_id?: string | null;
+  username?: string | null;
+  is_authenticated?: boolean;
+  ip_address: string;
+  device_type: 'mobile' | 'desktop' | 'tablet' | 'bot';
+  os: string;
+  browser: string;
+  screen_resolution: string;
+  current_path: string;
+  page_title: string;
+  referrer: string;
+  first_seen_at: number;
+  last_seen_at: number;
+  hits_count: number;
+  last_action: string;
+}
+
+const serverActivityLogs: ServerVisitorLog[] = [];
+const serverLiveSessions = new Map<string, ServerLiveSession>();
+const MAX_SERVER_ACTIVITY_LOGS = 5000;
+const LOCAL_VISITOR_LOGS_FILE = path.join(process.cwd(), '.visitor_logs_cache.json');
+
+// Load historical visitor logs from local file cache on server boot
+try {
+  if (fs.existsSync(LOCAL_VISITOR_LOGS_FILE)) {
+    const raw = fs.readFileSync(LOCAL_VISITOR_LOGS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      serverActivityLogs.push(...parsed.slice(0, MAX_SERVER_ACTIVITY_LOGS));
+      console.log(`[Visitor Tracking] Loaded ${serverActivityLogs.length} historical visitor logs from cache.`);
+    }
+  }
+} catch (e) {
+  console.warn('[Visitor Tracking] Error loading local visitor logs cache:', e);
+}
+
+// Helper to persist logs to disk
+let saveLogsTimeout: any = null;
+function persistVisitorLogsToDisk() {
+  if (saveLogsTimeout) return;
+  saveLogsTimeout = setTimeout(() => {
+    saveLogsTimeout = null;
+    try {
+      fs.writeFileSync(LOCAL_VISITOR_LOGS_FILE, JSON.stringify(serverActivityLogs.slice(0, 2000)), 'utf-8');
+    } catch {}
+  }, 1000);
+}
+
+function parseServerUserAgent(ua: string) {
+  const isBot = /bot|googlebot|crawler|spider|robot|crawling|lighthouse|headless/i.test(ua);
+  const isTablet = /(ipad|tablet|(android(?!.*mobile))|(windows(?!.*phone)(.*touch))|kindle|playbook|silk)/i.test(ua);
+  const isMobile = !isTablet && /(iphone|ipod|android.*mobile|windows phone|blackberry|bb10|mobile|opera mini|iemobile)/i.test(ua);
+  
+  let deviceType: 'mobile' | 'desktop' | 'tablet' | 'bot' = 'desktop';
+  if (isBot) deviceType = 'bot';
+  else if (isTablet) deviceType = 'tablet';
+  else if (isMobile) deviceType = 'mobile';
+
+  let os = 'Bilinmiyor';
+  if (/windows nt 10.0/i.test(ua)) os = 'Windows 10/11';
+  else if (/windows nt/i.test(ua)) os = 'Windows';
+  else if (/iphone|ipad|ipod/i.test(ua)) os = /ipad/i.test(ua) ? 'iPadOS' : 'iOS';
+  else if (/android/i.test(ua)) os = 'Android';
+  else if (/macintosh|mac os x/i.test(ua)) os = 'macOS';
+  else if (/linux/i.test(ua)) os = 'Linux';
+
+  let browser = 'Bilinmiyor';
+  if (/edg\//i.test(ua)) browser = 'Edge';
+  else if (/opr\/|opera/i.test(ua)) browser = 'Opera';
+  else if (/samsungbrowser/i.test(ua)) browser = 'Samsung Internet';
+  else if (/chrome|crios/i.test(ua)) browser = 'Chrome';
+  else if (/firefox|fxios/i.test(ua)) browser = 'Firefox';
+  else if (/safari/i.test(ua) && !/chrome|crios|android/i.test(ua)) browser = 'Safari';
+  else if (/telegram/i.test(ua)) browser = 'Telegram';
+
+  return { deviceType, os, browser };
+}
+
+// 1. Post visitor activity or heartbeat
+app.post('/api/tracking/activity', async (req, res) => {
+  try {
+    const rawIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || req.ip || '127.0.0.1';
+    const cleanIp = rawIp.replace(/^::ffff:/, '');
+    const userAgent = (req.headers['user-agent'] as string) || '';
+    const parsedUa = parseServerUserAgent(userAgent);
+
+    const {
+      session_id,
+      visitor_id,
+      user_id,
+      username,
+      is_authenticated,
+      device_info,
+      path,
+      page_title,
+      referrer,
+      action_type,
+      action_name,
+      details,
+    } = req.body || {};
+
+    const resolvedSessionId = String(session_id || `sess_${cleanIp.replace(/[^a-zA-Z0-9]/g, '')}_${Date.now()}`);
+    const resolvedVisitorId = String(visitor_id || `vis_${cleanIp.replace(/[^a-zA-Z0-9]/g, '')}`);
+    const resolvedDeviceType = device_info?.deviceType || parsedUa.deviceType;
+    const resolvedOs = device_info?.os || parsedUa.os;
+    const resolvedBrowser = device_info?.browser || parsedUa.browser;
+    const resolvedScreen = device_info?.screenResolution || 'Bilinmiyor';
+    const now = Date.now();
+    const nowIso = new Date().toISOString();
+
+    // Update Live Session
+    const existingSession = serverLiveSessions.get(resolvedSessionId);
+    const sessionObj: ServerLiveSession = {
+      session_id: resolvedSessionId,
+      visitor_id: resolvedVisitorId,
+      user_id: user_id || existingSession?.user_id || null,
+      username: username || existingSession?.username || (user_id ? 'Üye' : 'Misafir Ziyaretçi'),
+      is_authenticated: Boolean(is_authenticated || user_id || existingSession?.is_authenticated),
+      ip_address: cleanIp,
+      device_type: resolvedDeviceType,
+      os: resolvedOs,
+      browser: resolvedBrowser,
+      screen_resolution: resolvedScreen,
+      current_path: path || existingSession?.current_path || '/',
+      page_title: page_title || existingSession?.page_title || 'Ana Sayfa',
+      referrer: referrer || existingSession?.referrer || '',
+      first_seen_at: existingSession ? existingSession.first_seen_at : now,
+      last_seen_at: now,
+      hits_count: (existingSession?.hits_count || 0) + 1,
+      last_action: action_name || action_type || 'Ziyaret',
+    };
+    serverLiveSessions.set(resolvedSessionId, sessionObj);
+
+    // Filter out pure heartbeats from raw log list if identical to last log to prevent spam
+    const isHeartbeat = action_type === 'heartbeat';
+    if (!isHeartbeat || !serverActivityLogs.length || serverActivityLogs[0]?.session_id !== resolvedSessionId) {
+      const logEntry: ServerVisitorLog = {
+        id: `act_${now}_${Math.random().toString(36).substring(2, 7)}`,
+        session_id: resolvedSessionId,
+        visitor_id: resolvedVisitorId,
+        user_id: user_id || null,
+        username: username || (user_id ? 'Üye' : 'Misafir Ziyaretçi'),
+        is_authenticated: Boolean(is_authenticated || user_id),
+        device_type: resolvedDeviceType,
+        os: resolvedOs,
+        os_version: device_info?.osVersion,
+        browser: resolvedBrowser,
+        browser_version: device_info?.browserVersion,
+        screen_resolution: resolvedScreen,
+        ip_address: cleanIp,
+        path: path || '/',
+        page_title: page_title || '',
+        referrer: referrer || (req.headers.referer as string) || '',
+        action_type: action_type || 'page_view',
+        action_name: action_name || (action_type === 'page_view' ? `Sayfa Görüntülendi: ${path || '/'}` : 'Aktivite'),
+        details: details || {},
+        created_at: nowIso,
+      };
+
+      serverActivityLogs.unshift(logEntry);
+      if (serverActivityLogs.length > MAX_SERVER_ACTIVITY_LOGS) {
+        serverActivityLogs.pop();
+      }
+
+      // Save to local disk cache asynchronously
+      persistVisitorLogsToDisk();
+
+      // Persist to Supabase database (both visitor_logs and admin_logs) asynchronously for all-time historical storage
+      if (action_type !== 'heartbeat') {
+        const headers = {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=representation',
+        };
+
+        // 1. Save directly to public.visitor_logs table
+        fetch(`${SUPABASE_URL}/rest/v1/visitor_logs`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            id: logEntry.id,
+            session_id: logEntry.session_id,
+            visitor_id: logEntry.visitor_id,
+            user_id: logEntry.user_id,
+            username: logEntry.username,
+            is_authenticated: logEntry.is_authenticated,
+            device_type: logEntry.device_type,
+            os: logEntry.os,
+            os_version: logEntry.os_version || null,
+            browser: logEntry.browser,
+            browser_version: logEntry.browser_version || null,
+            screen_resolution: logEntry.screen_resolution || null,
+            ip_address: cleanIp,
+            path: logEntry.path,
+            page_title: logEntry.page_title || null,
+            referrer: logEntry.referrer || null,
+            action_type: logEntry.action_type,
+            action_name: logEntry.action_name,
+            details: logEntry.details || {},
+            created_at: nowIso,
+          }),
+        }).catch(() => {});
+
+        // 2. Also save to admin_logs for backward compatibility
+        fetch(`${SUPABASE_URL}/rest/v1/admin_logs`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            admin_username: logEntry.username,
+            action: `[${logEntry.device_type.toUpperCase()}] ${logEntry.action_name}`,
+            entity_type: 'visitor_activity',
+            entity_id: logEntry.session_id,
+            ip_address: cleanIp,
+            details: {
+              device_type: logEntry.device_type,
+              os: logEntry.os,
+              browser: logEntry.browser,
+              screen: logEntry.screen_resolution,
+              path: logEntry.path,
+              referrer: logEntry.referrer,
+              action_type: logEntry.action_type,
+              ...logEntry.details,
+            },
+            created_at: nowIso,
+          }),
+        }).catch(() => {});
+      }
+    }
+
+    // Clean up expired sessions older than 15 minutes
+    const expiryThreshold = now - 15 * 60 * 1000;
+    for (const [key, sess] of serverLiveSessions.entries()) {
+      if (sess.last_seen_at < expiryThreshold) {
+        serverLiveSessions.delete(key);
+      }
+    }
+
+    // Calculate current live active count (active in last 5 minutes)
+    const activeCutoff = now - 5 * 60 * 1000;
+    let liveCount = 0;
+    for (const sess of serverLiveSessions.values()) {
+      if (sess.last_seen_at >= activeCutoff) {
+        liveCount++;
+      }
+    }
+
+    return res.json({
+      success: true,
+      live_visitors_count: Math.max(1, liveCount),
+      session_id: resolvedSessionId,
+    });
+  } catch (err: any) {
+    console.error('Error tracking visitor activity:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Hata' });
+  }
+});
+
+// 2. Get Real-Time Live Visitors & Status
+app.get('/api/tracking/live', async (req, res) => {
+  try {
+    const now = Date.now();
+    const activeCutoff = now - 5 * 60 * 1000; // 5 mins
+
+    const activeList: ServerLiveSession[] = [];
+    let mobileCount = 0;
+    let desktopCount = 0;
+    let tabletCount = 0;
+
+    for (const sess of serverLiveSessions.values()) {
+      if (sess.last_seen_at >= activeCutoff) {
+        activeList.push(sess);
+        if (sess.device_type === 'mobile') mobileCount++;
+        else if (sess.device_type === 'tablet') tabletCount++;
+        else desktopCount++;
+      }
+    }
+
+    // Sort by most recently active
+    activeList.sort((a, b) => b.last_seen_at - a.last_seen_at);
+
+    return res.json({
+      success: true,
+      active_count: activeList.length,
+      active_visitors: activeList,
+      device_counts: {
+        mobile: mobileCount,
+        desktop: desktopCount,
+        tablet: tabletCount,
+      },
+      recent_logs: serverActivityLogs.slice(0, 30),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
+  }
+});
+
+function isLogWithinTimeRange(
+  logCreatedAt: string,
+  timeRange: string = '24h',
+  startDate?: string,
+  endDate?: string,
+  now: number = Date.now()
+): boolean {
+  if (!logCreatedAt) return true;
+  const logTime = new Date(logCreatedAt).getTime();
+  if (isNaN(logTime)) return true;
+
+  if (timeRange === 'all') {
+    return true;
+  }
+
+  if (timeRange === '1h') {
+    return logTime >= now - 60 * 60 * 1000;
+  }
+  if (timeRange === '6h') {
+    return logTime >= now - 6 * 60 * 60 * 1000;
+  }
+  if (timeRange === '12h') {
+    return logTime >= now - 12 * 60 * 60 * 1000;
+  }
+  if (timeRange === '24h') {
+    return logTime >= now - 24 * 60 * 60 * 1000;
+  }
+  if (timeRange === '7d') {
+    return logTime >= now - 7 * 24 * 60 * 60 * 1000;
+  }
+  if (timeRange === '30d') {
+    return logTime >= now - 30 * 24 * 60 * 60 * 1000;
+  }
+  if (timeRange === 'custom') {
+    if (startDate) {
+      const startTime = new Date(startDate).getTime();
+      if (!isNaN(startTime) && logTime < startTime) return false;
+    }
+    if (endDate) {
+      let endTime = new Date(endDate).getTime();
+      if (endDate.length === 10) {
+        endTime += 24 * 60 * 60 * 1000 - 1;
+      }
+      if (!isNaN(endTime) && logTime > endTime) return false;
+    }
+    return true;
+  }
+
+  // default 24 hours
+  return logTime >= now - 24 * 60 * 60 * 1000;
+}
+
+function computeDailyVisitorLogs(logs: ServerVisitorLog[], daysLimit = 60) {
+  const dayMap = new Map<string, {
+    date: string;
+    visitors: Set<string>;
+    page_views: number;
+    events: number;
+    mobile: number;
+    desktop: number;
+    tablet: number;
+    bot: number;
+    auth_users: Set<string>;
+    pages: Map<string, number>;
+    hours: Map<number, number>;
+  }>();
+
+  for (const log of logs) {
+    if (!log.created_at) continue;
+    const d = new Date(log.created_at);
+    if (isNaN(d.getTime())) continue;
+    const dateStr = d.toISOString().slice(0, 10); // YYYY-MM-DD
+    
+    if (!dayMap.has(dateStr)) {
+      dayMap.set(dateStr, {
+        date: dateStr,
+        visitors: new Set<string>(),
+        page_views: 0,
+        events: 0,
+        mobile: 0,
+        desktop: 0,
+        tablet: 0,
+        bot: 0,
+        auth_users: new Set<string>(),
+        pages: new Map<string, number>(),
+        hours: new Map<number, number>(),
+      });
+    }
+
+    const item = dayMap.get(dateStr)!;
+    item.events++;
+    if (log.visitor_id) item.visitors.add(log.visitor_id);
+    if (log.is_authenticated && (log.user_id || log.username)) {
+      item.auth_users.add(log.user_id || log.username || '');
+    }
+    if (log.action_type === 'page_view') {
+      item.page_views++;
+      if (log.path) item.pages.set(log.path, (item.pages.get(log.path) || 0) + 1);
+    }
+    if (log.device_type === 'mobile') item.mobile++;
+    else if (log.device_type === 'tablet') item.tablet++;
+    else if (log.device_type === 'bot') item.bot++;
+    else item.desktop++;
+
+    const hour = d.getHours();
+    item.hours.set(hour, (item.hours.get(hour) || 0) + 1);
+  }
+
+  const result: any[] = [];
+  for (const [date, data] of dayMap.entries()) {
+    let topPage = '';
+    let topPageViews = 0;
+    for (const [p, cnt] of data.pages.entries()) {
+      if (cnt > topPageViews) {
+        topPage = p;
+        topPageViews = cnt;
+      }
+    }
+
+    let peakHourNum = 0;
+    let peakHourCount = 0;
+    for (const [h, cnt] of data.hours.entries()) {
+      if (cnt > peakHourCount) {
+        peakHourNum = h;
+        peakHourCount = cnt;
+      }
+    }
+    const peakHour = `${peakHourNum.toString().padStart(2, '0')}:00 - ${(peakHourNum + 1).toString().padStart(2, '0')}:00`;
+
+    result.push({
+      date,
+      unique_visitors: Math.max(1, data.visitors.size || (data.events > 0 ? 1 : 0)),
+      total_page_views: data.page_views,
+      total_events: data.events,
+      mobile_count: data.mobile,
+      desktop_count: data.desktop,
+      tablet_count: data.tablet,
+      bot_count: data.bot,
+      authenticated_users: data.auth_users.size,
+      top_page: topPage || '/',
+      top_page_views: topPageViews,
+      peak_hour: peakHour,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  result.sort((a, b) => b.date.localeCompare(a.date));
+  return result.slice(0, daysLimit);
+}
+
+// 3. Get Detailed Analytics & Statistics
+app.get('/api/tracking/stats', async (req, res) => {
+  try {
+    const { time_range = '24h', start_date, end_date } = req.query;
+    const now = Date.now();
+    const activeCutoff = now - 5 * 60 * 1000;
+
+    let liveCount = 0;
+    for (const sess of serverLiveSessions.values()) {
+      if (sess.last_seen_at >= activeCutoff) liveCount++;
+    }
+
+    // Filter serverActivityLogs by selected timeframe
+    const filteredLogs = serverActivityLogs.filter((log) =>
+      isLogWithinTimeRange(log.created_at, time_range as string, start_date as string, end_date as string, now)
+    );
+
+    // Compute Daily Logs History
+    const dailyHistory = computeDailyVisitorLogs(serverActivityLogs, 60);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterdayDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
+
+    const todayLog = dailyHistory.find((d) => d.date === todayStr);
+    const yesterdayLog = dailyHistory.find((d) => d.date === yesterdayStr);
+
+    let peakDay = { date: '-', visitors: 0 };
+    let totalDailyVisitorsSum = 0;
+    for (const d of dailyHistory) {
+      totalDailyVisitorsSum += d.unique_visitors;
+      if (d.unique_visitors > peakDay.visitors) {
+        peakDay = { date: d.date, visitors: d.unique_visitors };
+      }
+    }
+    const avgDailyVisitors = dailyHistory.length > 0 ? Math.round(totalDailyVisitorsSum / dailyHistory.length) : 0;
+
+    // Aggregate from filtered logs
+    const uniqueVisitors = new Set<string>();
+    const pageViewMap = new Map<string, number>();
+    const osMap = new Map<string, number>();
+    const browserMap = new Map<string, number>();
+    const actionMap = new Map<string, number>();
+
+    let mobileCount = 0;
+    let desktopCount = 0;
+    let tabletCount = 0;
+    let botCount = 0;
+    let pageViewsCount = 0;
+
+    for (const log of filteredLogs) {
+      if (log.visitor_id) uniqueVisitors.add(log.visitor_id);
+      if (log.action_type === 'page_view') {
+        pageViewsCount++;
+        pageViewMap.set(log.path, (pageViewMap.get(log.path) || 0) + 1);
+      }
+
+      if (log.device_type === 'mobile') mobileCount++;
+      else if (log.device_type === 'tablet') tabletCount++;
+      else if (log.device_type === 'bot') botCount++;
+      else desktopCount++;
+
+      if (log.os) osMap.set(log.os, (osMap.get(log.os) || 0) + 1);
+      if (log.browser) browserMap.set(log.browser, (browserMap.get(log.browser) || 0) + 1);
+      if (log.action_type) actionMap.set(log.action_type, (actionMap.get(log.action_type) || 0) + 1);
+    }
+
+    const total = Math.max(1, filteredLogs.length);
+
+    const osBreakdown = Array.from(osMap.entries())
+      .map(([name, count]) => ({ name, count, percent: Math.round((count / total) * 100) }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    const browserBreakdown = Array.from(browserMap.entries())
+      .map(([name, count]) => ({ name, count, percent: Math.round((count / total) * 100) }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    const topPages = Array.from(pageViewMap.entries())
+      .map(([path, count]) => ({ path, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    const actionBreakdown = Array.from(actionMap.entries())
+      .map(([action, count]) => ({ action, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return res.json({
+      success: true,
+      time_range: time_range || '24h',
+      stats: {
+        total_events: filteredLogs.length,
+        all_time_total_events: serverActivityLogs.length,
+        total_unique_visitors: uniqueVisitors.size || (serverLiveSessions.size || 1),
+        total_page_views: pageViewsCount,
+        live_active_visitors: Math.max(1, liveCount),
+        today_unique_visitors: todayLog?.unique_visitors || Math.max(1, uniqueVisitors.size),
+        today_page_views: todayLog?.total_page_views || pageViewsCount,
+        yesterday_unique_visitors: yesterdayLog?.unique_visitors || 0,
+        daily_average_visitors: avgDailyVisitors,
+        peak_day: peakDay,
+        daily_history: dailyHistory,
+        device_breakdown: {
+          mobile_count: mobileCount,
+          mobile_percent: Math.round((mobileCount / total) * 100),
+          desktop_count: desktopCount,
+          desktop_percent: Math.round((desktopCount / total) * 100),
+          tablet_count: tabletCount,
+          tablet_percent: Math.round((tabletCount / total) * 100),
+          bot_count: botCount,
+          bot_percent: Math.round((botCount / total) * 100),
+        },
+        os_breakdown: osBreakdown,
+        browser_breakdown: browserBreakdown,
+        top_pages: topPages,
+        action_breakdown: actionBreakdown,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
+  }
+});
+
+// 3.5 Get Daily Visitor Logs specifically
+app.get('/api/tracking/daily', async (req, res) => {
+  try {
+    const { days = '60' } = req.query;
+    const daysLimit = parseInt(days as string, 10) || 60;
+    const dailyLogs = computeDailyVisitorLogs(serverActivityLogs, daysLimit);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterdayDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
+
+    const todayLog = dailyLogs.find((d) => d.date === todayStr);
+    const yesterdayLog = dailyLogs.find((d) => d.date === yesterdayStr);
+
+    let peakDay = { date: '-', visitors: 0 };
+    let totalVisitorsSum = 0;
+    let totalPageViewsSum = 0;
+
+    for (const d of dailyLogs) {
+      totalVisitorsSum += d.unique_visitors;
+      totalPageViewsSum += d.total_page_views;
+      if (d.unique_visitors > peakDay.visitors) {
+        peakDay = { date: d.date, visitors: d.unique_visitors };
+      }
+    }
+
+    return res.json({
+      success: true,
+      total_days: dailyLogs.length,
+      today_unique_visitors: todayLog?.unique_visitors || 0,
+      today_page_views: todayLog?.total_page_views || 0,
+      yesterday_unique_visitors: yesterdayLog?.unique_visitors || 0,
+      yesterday_page_views: yesterdayLog?.total_page_views || 0,
+      peak_day: peakDay,
+      average_daily_visitors: dailyLogs.length > 0 ? Math.round(totalVisitorsSum / dailyLogs.length) : 0,
+      total_recorded_visitors: totalVisitorsSum,
+      total_recorded_page_views: totalPageViewsSum,
+      daily_logs: dailyLogs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
+  }
+});
+
+// 4. Get Filtered & Paginated Logs
+app.get('/api/tracking/logs', async (req, res) => {
+  try {
+    const { device, action, search, user_type, time_range = '24h', start_date, end_date, limit = '100', offset = '0' } = req.query;
+    const numLimit = parseInt(limit as string, 10) || 100;
+    const numOffset = parseInt(offset as string, 10) || 0;
+    const cleanSearch = (search as string || '').toLowerCase().trim();
+    const cleanDevice = (device as string || 'all').toLowerCase();
+    const cleanAction = (action as string || 'all').toLowerCase();
+    const cleanUserType = (user_type as string || 'all').toLowerCase();
+    const cleanTimeRange = (time_range as string || '24h').toLowerCase();
+
+    const now = Date.now();
+    const activeCutoff = now - 5 * 60 * 1000;
+
+    let filtered = serverActivityLogs.filter((log) => {
+      // Time Range Filter
+      if (!isLogWithinTimeRange(log.created_at, cleanTimeRange, start_date as string, end_date as string, now)) {
+        return false;
+      }
+      // Device filter
+      if (cleanDevice !== 'all' && log.device_type !== cleanDevice) {
+        return false;
+      }
+      // Action filter
+      if (cleanAction !== 'all' && log.action_type !== cleanAction) {
+        return false;
+      }
+      // User type filter
+      if (cleanUserType === 'member' && !log.is_authenticated) {
+        return false;
+      }
+      if (cleanUserType === 'guest' && log.is_authenticated) {
+        return false;
+      }
+      // Search filter
+      if (cleanSearch) {
+        const matches =
+          log.ip_address?.toLowerCase().includes(cleanSearch) ||
+          log.username?.toLowerCase().includes(cleanSearch) ||
+          log.path?.toLowerCase().includes(cleanSearch) ||
+          log.action_name?.toLowerCase().includes(cleanSearch) ||
+          log.os?.toLowerCase().includes(cleanSearch) ||
+          log.browser?.toLowerCase().includes(cleanSearch) ||
+          JSON.stringify(log.details || {}).toLowerCase().includes(cleanSearch);
+        if (!matches) return false;
+      }
+      return true;
+    });
+
+    // Mark online status dynamically
+    const paginated = filtered.slice(numOffset, numOffset + numLimit).map((item) => {
+      const liveSess = serverLiveSessions.get(item.session_id);
+      const isOnline = liveSess ? (liveSess.last_seen_at >= activeCutoff) : false;
+      return {
+        ...item,
+        is_online: isOnline,
+      };
+    });
+
+    return res.json({
+      success: true,
+      time_range: cleanTimeRange,
+      total: filtered.length,
+      limit: numLimit,
+      offset: numOffset,
+      logs: paginated,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
+  }
+});
+
+// 5. Clear Tracking Logs
+app.post('/api/tracking/clear', async (_req, res) => {
+  try {
+    serverActivityLogs.length = 0;
+    serverLiveSessions.clear();
+    return res.json({ success: true, message: 'Tüm ziyaretçi ve aktivite logları başarıyla temizlendi.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message });
   }
 });
 
@@ -2074,7 +3577,9 @@ async function startServer() {
         const indexPath = path.resolve(process.cwd(), 'index.html');
         let template = fs.readFileSync(indexPath, 'utf-8');
         template = await vite.transformIndexHtml(url, template);
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+        const seo = await getAuthoritativeSiteSettings();
+        const transformedHtml = injectDynamicSeoTags(template, req, seo);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(transformedHtml);
       } catch (e) {
         vite.ssrFixStacktrace(e as Error);
         next(e);
@@ -2088,12 +3593,19 @@ async function startServer() {
     app.use(express.static(distPath, { index: false }));
 
     // Universal SPA fallback for all frontend GET requests
-    app.get('*', (req, res, next) => {
+    app.get('*', async (req, res, next) => {
       // Never intercept API routes
       if (req.path.startsWith('/api/')) {
         return next();
       }
-      res.sendFile(indexPath);
+      try {
+        let template = fs.readFileSync(indexPath, 'utf-8');
+        const seo = await getAuthoritativeSiteSettings();
+        const transformedHtml = injectDynamicSeoTags(template, req, seo);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(transformedHtml);
+      } catch (e) {
+        next(e);
+      }
     });
   }
 
