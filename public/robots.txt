@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /admin
+Disallow: /api/
+Allow: /api/seo/
+
+# Sitemap definition (Strict non-www HTTPS)
+Sitemap: https://shelbyonline.com/sitemap.xml

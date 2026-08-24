@@ -271,6 +271,7 @@ export interface SiteSettings {
   og_site_name?: string;
   favicon_url?: string;
   twitter_card?: string;
+  google_site_verification?: string;
   logo_text?: string;
   logo_tagline?: string;
   logo_url?: string;
@@ -329,6 +330,8 @@ export interface AdminLog {
   created_at: string;
 }
 
+export * from './mines';
+
 export type DeviceCategory = 'mobile' | 'desktop' | 'tablet' | 'bot';
 
 export interface VisitorLog {
@@ -348,7 +351,7 @@ export interface VisitorLog {
   path: string;
   page_title?: string;
   referrer?: string;
-  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'heartbeat' | 'other';
+  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'mines_game' | 'game_play' | 'heartbeat' | 'other';
   action_name?: string;
   details?: Record<string, any>;
   duration_seconds?: number;

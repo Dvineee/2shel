@@ -13,12 +13,12 @@ import {
 
 export const initialSiteSettings: SiteSettings = {
   site_name: 'Shelby Online',
-  site_title: 'Shelby Online',
-  meta_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
-  site_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
+  site_title: 'Shelby Online | Güncel Kampanyalar',
+  meta_description: 'Shelby Online ile güncel kampanyaları, sponsorları ve ödülleri keşfedin.',
+  site_description: 'Shelby Online ile güncel kampanyaları, sponsorları ve ödülleri keşfedin.',
   og_title: 'Shelby Online | Güncel Kampanyalar',
-  og_description: 'En güncel kampanyaları ve bonusları keşfet.',
-  og_image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1200&h=630&q=80',
+  og_description: 'Güncel kampanyaları, sponsorları ve Shelby Online ödüllerini keşfedin.',
+  og_image: 'https://i.ibb.co/wrywMXS9/photo-2026-08-18-00-18-10.jpg',
   og_url: 'https://shelbyonline.com',
   og_site_name: 'Shelby Online',
   favicon_url: '',

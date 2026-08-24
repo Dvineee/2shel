@@ -21,6 +21,7 @@ import {
   AdminLog,
   StreakDayConfig,
   UserStreakInfo,
+  MinesGame,
 } from '../types';
 import { getSponsorCategory, sortSponsors } from './sponsorUtils';
 import {
@@ -58,6 +59,7 @@ const STORAGE_KEYS = {
   SPONSOR_CLICKS: 'sponsorhub_sponsor_clicks_v1',
   BANNER_CLICKS: 'sponsorhub_banner_clicks_v1',
   DELETED_SPONSORS: 'sponsorhub_deleted_sponsors_v1',
+  MINES_GAMES: 'sponsorhub_mines_games_v1',
 };
 
 // Fast Two-Tier (In-Memory + LocalStorage) Cache for 0ms initial load & instant rendering
@@ -2980,7 +2982,7 @@ export const db = {
     return getStored<Profile[]>(STORAGE_KEYS.PROFILES, []);
   },
 
-  async saveProfile(profile: Partial<Profile>): Promise<Profile> {
+  async saveProfile(profile: Partial<Profile>, silent = false): Promise<Profile> {
     const profiles = await this.getProfiles();
     let saved: Profile;
     const idx = profiles.findIndex((p) => p.id === profile.id || (profile.telegram_id && p.telegram_id === profile.telegram_id));
@@ -3007,7 +3009,7 @@ export const db = {
       };
       profiles.push(saved);
     }
-    setStored(STORAGE_KEYS.PROFILES, profiles);
+    setStored(STORAGE_KEYS.PROFILES, profiles, silent);
 
     if (isSupabaseReady()) {
       try {
@@ -3155,19 +3157,64 @@ export const db = {
     return true;
   },
 
+  async getMinesGames(): Promise<MinesGame[]> {
+    try {
+      const res = await fetch('/api/mines/history', { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.games)) {
+          setStored(STORAGE_KEYS.MINES_GAMES, json.games, true);
+          return json.games as MinesGame[];
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return getStored<MinesGame[]>(STORAGE_KEYS.MINES_GAMES, []);
+  },
+
+  async getUserMinesGames(userId: string): Promise<MinesGame[]> {
+    try {
+      const res = await fetch(`/api/mines/user/${encodeURIComponent(userId)}`, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.games)) {
+          return json.games as MinesGame[];
+        }
+      }
+    } catch {
+      // ignore
+    }
+    const all = await this.getMinesGames();
+    return all.filter((g) => g.user_id === userId);
+  },
+
+  async saveMinesGame(game: MinesGame): Promise<void> {
+    const list = getStored<MinesGame[]>(STORAGE_KEYS.MINES_GAMES, []);
+    const idx = list.findIndex((g) => g.id === game.id);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], ...game };
+    } else {
+      list.unshift(game);
+    }
+    setStored(STORAGE_KEYS.MINES_GAMES, list.slice(0, 500));
+  },
+
   async getUserActivityHistory(userId: string) {
-    const [spins, entries, orders, logs] = await Promise.all([
+    const [spins, entries, orders, logs, minesGames] = await Promise.all([
       this.getWheelSpins().catch(() => []),
       this.getGiveawayEntries().catch(() => []),
       this.getStoreOrders().catch(() => []),
       this.getAdminLogs().catch(() => []),
+      this.getUserMinesGames(userId).catch(() => []),
     ]);
 
     const userSpins = (spins || []).filter((s) => s.user_id === userId);
     const userEntries = (entries || []).filter((e) => e.user_id === userId);
     const userOrders = (orders || []).filter((o) => o.user_id === userId);
+    const userMines = (minesGames || []).filter((g) => g.user_id === userId);
     const userLogs = (logs || []).filter(
-      (l) => l.entity_id === userId || (l.details && (l.details as any).user_id === userId)
+      (l) => l.entity_id === userId || (l.details && ((l.details as any).user_id === userId || (l.details as any).userId === userId))
     );
 
     return {
@@ -3175,7 +3222,8 @@ export const db = {
       entries: userEntries,
       orders: userOrders,
       logs: userLogs,
-      totalActivityCount: userSpins.length + userEntries.length + userOrders.length + userLogs.length,
+      minesGames: userMines,
+      totalActivityCount: userSpins.length + userEntries.length + userOrders.length + userLogs.length + userMines.length,
     };
   },
 

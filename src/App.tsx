@@ -15,6 +15,7 @@ import { GiveawaysPage } from './pages/Giveaways';
 import { LeaderboardPage } from './pages/Leaderboard';
 import { StorePage } from './pages/Store';
 import { GamesPage } from './pages/Games';
+import { MinesGamePage } from './pages/MinesGame';
 import { LiveTvPage } from './pages/LiveTv';
 import { AboutPage } from './pages/About';
 import { ContactPage } from './pages/Contact';
@@ -38,12 +39,14 @@ import { SettingsManager } from './pages/admin/SettingsManager';
 import { LogsManager } from './pages/admin/LogsManager';
 import { VisitorLogsManager } from './pages/admin/VisitorLogsManager';
 import { VisitorTrackerListener } from './components/common/VisitorTrackerListener';
+import { SEOHeadListener } from './components/common/SEOHeadListener';
 
 export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <DataProvider>
+          <SEOHeadListener />
           <VisitorTrackerListener />
           <Toaster
             position="top-right"
@@ -110,6 +113,14 @@ export function App() {
                 element={
                   <PageGuard pageKey="games" pageName="Oyunlar">
                     <GamesPage />
+                  </PageGuard>
+                }
+              />
+              <Route
+                path="/games/mines"
+                element={
+                  <PageGuard pageKey="games" pageName="Shelby Mines">
+                    <MinesGamePage />
                   </PageGuard>
                 }
               />

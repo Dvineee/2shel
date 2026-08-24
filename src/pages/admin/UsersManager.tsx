@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../lib/db';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { Profile, UserRole, StoreOrder, WheelSpin, GiveawayEntry, AdminLog } from '../../types';
+import { Profile, UserRole, StoreOrder, WheelSpin, GiveawayEntry, AdminLog, MinesGame } from '../../types';
 import {
   Users,
   Search,
@@ -31,6 +31,9 @@ import {
   Copy,
   Check,
   UserPlus,
+  Bomb,
+  Trophy,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCoin } from '../../lib/utils';
@@ -61,10 +64,11 @@ export const UsersManager: React.FC = () => {
     entries: GiveawayEntry[];
     orders: StoreOrder[];
     logs: AdminLog[];
+    minesGames?: MinesGame[];
     totalActivityCount: number;
   } | null>(null);
   const [loadingLogs, setLoadingLogs] = useState(false);
-  const [activeLogTab, setActiveLogTab] = useState<'all' | 'spins' | 'orders' | 'entries' | 'system'>('all');
+  const [activeLogTab, setActiveLogTab] = useState<'all' | 'mines' | 'spins' | 'orders' | 'entries' | 'system'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Delete Confirmation Modal State
@@ -751,6 +755,7 @@ export const UsersManager: React.FC = () => {
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-violet-900/30">
               {[
                 { id: 'all', label: `Tüm Aktiviteler (${userActivity?.totalActivityCount || 0})`, icon: Activity },
+                { id: 'mines', label: `💣 Mayın Tarlası (${userActivity?.minesGames?.length || 0})`, icon: Bomb },
                 { id: 'spins', label: `🎡 Çark Çevirmeleri (${userActivity?.spins.length || 0})`, icon: Disc },
                 { id: 'orders', label: `🛍️ Mağaza Siparişleri (${userActivity?.orders.length || 0})`, icon: ShoppingBag },
                 { id: 'entries', label: `🎁 Çekiliş Katılımları (${userActivity?.entries.length || 0})`, icon: Gift },
@@ -785,6 +790,115 @@ export const UsersManager: React.FC = () => {
                 </div>
               ) : (
                 <>
+                  {/* Mines Games Section */}
+                  {(activeLogTab === 'all' || activeLogTab === 'mines') && (userActivity.minesGames || []).length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-black text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Bomb className="w-3.5 h-3.5" />
+                        <span>Mayın Tarlası Oyun Geçmişi ({userActivity.minesGames?.length || 0})</span>
+                      </div>
+                      <div className="space-y-2">
+                        {(userActivity.minesGames || []).map((game) => {
+                          const isWin = game.status === 'won' || game.status === 'cashed_out';
+                          const isLost = game.status === 'lost';
+                          const isActive = game.status === 'active';
+                          const profit = isWin
+                            ? (game.potential_win || game.bet_amount * game.multiplier) - game.bet_amount
+                            : -game.bet_amount;
+
+                          return (
+                            <div
+                              key={game.id}
+                              className={`p-3.5 rounded-2xl bg-[#090614] border text-xs space-y-2 transition-all ${
+                                isWin
+                                  ? 'border-emerald-500/30 bg-gradient-to-r from-emerald-950/20 to-[#090614]'
+                                  : isLost
+                                  ? 'border-rose-500/30 bg-gradient-to-r from-rose-950/20 to-[#090614]'
+                                  : 'border-violet-800/40'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                  <div
+                                    className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-sm ${
+                                      isWin
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : isLost
+                                        ? 'bg-rose-500/20 text-rose-300'
+                                        : 'bg-violet-500/20 text-violet-300'
+                                    }`}
+                                  >
+                                    {isWin ? '💎' : isLost ? '💣' : '⚡'}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-black text-white text-xs">
+                                        {game.status === 'won'
+                                          ? 'Tam Galibiyet'
+                                          : game.status === 'cashed_out'
+                                          ? 'Kazanç Alındı'
+                                          : game.status === 'lost'
+                                          ? 'Mayına Bastı (Kaybetti)'
+                                          : 'Devam Eden Oyun'}
+                                      </span>
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                          isWin
+                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                            : isLost
+                                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                        }`}
+                                      >
+                                        x{Number(game.multiplier || 1).toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 block mt-0.5">
+                                      {new Date(game.created_at).toLocaleString('tr-TR')} • ID: #{game.id.slice(-8)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="text-right">
+                                  <span
+                                    className={`font-black text-sm block ${
+                                      isWin ? 'text-emerald-400' : isLost ? 'text-rose-400' : 'text-slate-300'
+                                    }`}
+                                  >
+                                    {isWin ? `+${formatCoin(game.potential_win || game.bet_amount * game.multiplier)}` : isLost ? `-${formatCoin(game.bet_amount)}` : `${formatCoin(game.bet_amount)}`} Coin
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 block">
+                                    Bahis: {formatCoin(game.bet_amount)} Coin
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Game breakdown chips */}
+                              <div className="pt-1.5 border-t border-violet-900/30 flex items-center justify-between text-[11px] text-slate-300">
+                                <div className="flex items-center gap-3">
+                                  <span className="flex items-center gap-1 text-slate-400">
+                                    <span>💣 Mayın:</span>
+                                    <strong className="text-rose-300">{game.mine_count} Adet</strong>
+                                  </span>
+                                  <span>•</span>
+                                  <span className="flex items-center gap-1 text-slate-400">
+                                    <span>💎 Açılan:</span>
+                                    <strong className="text-emerald-300">{game.opened_cells.length} Kutu</strong>
+                                  </span>
+                                </div>
+                                {isWin && (
+                                  <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3" /> Net Kâr: +{formatCoin(profit)} Coin
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Wheel Spins Section */}
                   {(activeLogTab === 'all' || activeLogTab === 'spins') && userActivity.spins.length > 0 && (
                     <div className="space-y-2">

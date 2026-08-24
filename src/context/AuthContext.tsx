@@ -15,6 +15,8 @@ interface AuthContextType {
   register: (username: string, email?: string, pass?: string) => Promise<boolean>;
   logout: () => void;
   refreshProfile: () => Promise<void>;
+  updateUserCoins: (delta: number) => number;
+  setUserCoins: (exactBalance: number) => void;
   syncTelegramProfile: () => Promise<boolean>;
   isAdmin: boolean;
   isEditor: boolean;
@@ -462,8 +464,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user) {
       const profiles = await db.getProfiles();
       const current = profiles.find((p) => p.id === user.id);
-      if (current) setUser(current);
+      if (current) {
+        setUserState(current);
+        try {
+          localStorage.setItem(CURRENT_USER_PROFILE_KEY, JSON.stringify(current));
+        } catch {}
+      }
     }
+  };
+
+  const updateUserCoins = (delta: number): number => {
+    let finalCoins = 0;
+    setUserState((prev) => {
+      if (!prev) return null;
+      finalCoins = Math.max(0, Math.round(((prev.coin_balance ?? 0) + delta) * 100) / 100);
+      const updated: Profile = {
+        ...prev,
+        coin_balance: finalCoins,
+        updated_at: new Date().toISOString(),
+      };
+      try {
+        localStorage.setItem(CURRENT_USER_KEY, updated.id);
+        localStorage.setItem(CURRENT_USER_PROFILE_KEY, JSON.stringify(updated));
+      } catch {}
+      // Perform background database persistence with silent=true to prevent reload event storms
+      db.saveProfile(updated, true).catch(() => {});
+      return updated;
+    });
+    return finalCoins;
+  };
+
+  const setUserCoins = (exactBalance: number) => {
+    setUserState((prev) => {
+      if (!prev) return null;
+      const finalCoins = Math.max(0, Math.round(exactBalance * 100) / 100);
+      const updated: Profile = {
+        ...prev,
+        coin_balance: finalCoins,
+        updated_at: new Date().toISOString(),
+      };
+      try {
+        localStorage.setItem(CURRENT_USER_KEY, updated.id);
+        localStorage.setItem(CURRENT_USER_PROFILE_KEY, JSON.stringify(updated));
+      } catch {}
+      db.saveProfile(updated, true).catch(() => {});
+      return updated;
+    });
   };
 
   const syncTelegramProfile = async (): Promise<boolean> => {
@@ -536,6 +582,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         refreshProfile,
+        updateUserCoins,
+        setUserCoins,
         syncTelegramProfile,
         isAdmin,
         isEditor,

@@ -10,6 +10,39 @@ const PORT = 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// ==============================================================================
+// CANONICAL 301 REDIRECTION MIDDLEWARE (Force HTTPS & Non-WWW: shelbyonline.com)
+// ==============================================================================
+app.use((req, res, next) => {
+  try {
+    const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+    const rawProto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+    const host = rawHost.split(':')[0].toLowerCase();
+
+    // 1. Explicit check for www.shelbyonline.com -> 301 redirect to https://shelbyonline.com
+    if (host === 'www.shelbyonline.com') {
+      return res.redirect(301, `https://shelbyonline.com${req.originalUrl}`);
+    }
+
+    // 2. Explicit check for HTTP on shelbyonline.com -> 301 redirect to HTTPS
+    if (host === 'shelbyonline.com' && rawProto === 'http') {
+      return res.redirect(301, `https://shelbyonline.com${req.originalUrl}`);
+    }
+
+    // 3. Generic WWW prefix redirect for any custom domain (except local/dev domains)
+    if (
+      host.startsWith('www.') &&
+      !host.includes('localhost') &&
+      !host.includes('127.0.0.1') &&
+      !host.includes('run.app')
+    ) {
+      const nonWww = host.replace(/^www\./, '');
+      return res.redirect(301, `https://${nonWww}${req.originalUrl}`);
+    }
+  } catch {}
+  next();
+});
+
 // Telegram Bot Configuration
 const TELEGRAM_BOT_TOKEN =
   process.env.TELEGRAM_BOT_TOKEN || '8944054737:AAHD_G8mzXVQiYEQnqUDiLa6hSJyRdIyjeY';
@@ -92,6 +125,8 @@ function markMessageProcessed(key: string): boolean {
 }
 
 // Telegram API Helper with resilient timeout and network error handling
+let lastTelegramConflictLogTime = 0;
+
 async function telegramApiCall(method: string, body?: any, timeoutMs?: number) {
   if (!TELEGRAM_BOT_TOKEN) return null;
   
@@ -107,6 +142,20 @@ async function telegramApiCall(method: string, body?: any, timeoutMs?: number) {
     });
 
     if (!res.ok) {
+      if (res.status === 409) {
+        // 409 Conflict: Another instance or connection is calling getUpdates
+        const now = Date.now();
+        if (now - lastTelegramConflictLogTime > 60000) {
+          lastTelegramConflictLogTime = now;
+          console.log('ℹ️ [Telegram API] Notice: getUpdates returned HTTP 409 Conflict (another instance or session is polling). Backing off gracefully.');
+        }
+        return { ok: false, error_code: 409, is_conflict: true };
+      }
+
+      if (res.status === 429) {
+        return { ok: false, error_code: 429, description: 'Too Many Requests' };
+      }
+
       const errText = await res.text().catch(() => '');
       console.warn(`[Telegram API] ${method} returned HTTP ${res.status}: ${errText}`);
       return null;
@@ -125,7 +174,6 @@ async function telegramApiCall(method: string, body?: any, timeoutMs?: number) {
 
     if (method === 'getUpdates' && isNetworkError) {
       // Long-polling idle reconnect cycle is normal when Telegram or container resets idle connection
-      // Log as brief info notice instead of throwing an unhandled error
       return null;
     }
 
@@ -348,10 +396,17 @@ let pollingOffset = 0;
 let isPolling = false;
 
 async function pollTelegramUpdates() {
+  const isInternalEnabled = process.env.ENABLE_INTERNAL_TELEGRAM_BOT === 'true';
+  if (!isInternalEnabled) {
+    console.log('ℹ️ [Telegram Bot] Web sunucusunda dahili polling devre dışı (Ayrı bot servisi bekleniyor).');
+    return;
+  }
+
   if (isPolling) return;
   isPolling = true;
 
   let consecutiveErrors = 0;
+  let consecutiveConflicts = 0;
 
   while (true) {
     try {
@@ -367,6 +422,7 @@ async function pollTelegramUpdates() {
 
       if (res && res.ok && Array.isArray(res.result)) {
         consecutiveErrors = 0;
+        consecutiveConflicts = 0;
         for (const update of res.result) {
           // Immediately acknowledge offset for Telegram
           if (update.update_id >= pollingOffset) {
@@ -374,9 +430,19 @@ async function pollTelegramUpdates() {
           }
           await handleTelegramUpdate(update);
         }
+      } else if (res && (res.error_code === 409 || res.is_conflict)) {
+        consecutiveConflicts++;
+        // On 409 Conflict (another instance or session running), back off with jitter
+        const conflictBackoff = Math.min(5000 + consecutiveConflicts * 3000, 30000) + Math.floor(Math.random() * 2000);
+        await new Promise((r) => setTimeout(r, conflictBackoff));
+        continue;
+      } else if (res && res.error_code === 429) {
+        // Rate limit backoff
+        await new Promise((r) => setTimeout(r, 10000));
+        continue;
       } else if (!res) {
         consecutiveErrors++;
-        // If connection reset or failed, wait progressively (1s -> 2s -> 4s max 8s) before retry
+        // If connection reset or failed, wait progressively (1.5s -> 3s -> max 8s) before retry
         const backoff = Math.min(consecutiveErrors * 1500, 8000);
         await new Promise((r) => setTimeout(r, backoff));
         continue;
@@ -558,6 +624,45 @@ async function handleTelegramUpdate(update: any) {
 
 // ======================== API ROUTES ========================
 
+// Telegram Webhook Handler (Fallback for environments using webhooks)
+app.post('/api/telegram/webhook', async (req, res) => {
+  try {
+    const update = req.body;
+    if (update && typeof update === 'object') {
+      handleTelegramUpdate(update).catch((err) => {
+        console.error('[Telegram Webhook] Error processing update:', err);
+      });
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.json({ ok: true });
+  }
+});
+
+// Endpoint to receive active auth codes from external standalone bot instances
+app.post('/api/telegram/register-code', async (req, res) => {
+  try {
+    const entry = req.body;
+    if (entry && entry.code && entry.telegram_id) {
+      const cleanCode = String(entry.code).toUpperCase().trim();
+      activeAuthCodes.set(cleanCode, {
+        code: cleanCode,
+        telegram_id: Number(entry.telegram_id),
+        telegram_username: entry.telegram_username || '',
+        telegram_first_name: entry.telegram_first_name || 'Shelby',
+        telegram_last_name: entry.telegram_last_name || '',
+        photo_url: entry.photo_url || '',
+        created_at: entry.created_at || Date.now(),
+        expires_at: entry.expires_at || Date.now() + 5 * 60 * 1000,
+      });
+      return res.json({ success: true, message: 'Kod başarıyla senkronize edildi.' });
+    }
+    return res.status(400).json({ success: false, message: 'Geçersiz kod verisi' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Hata' });
+  }
+});
+
 // In-memory cache for portal data to eliminate database saturation & ensure sub-5ms response times
 let cachedPortalData: any = null;
 let cachedPortalDataTime = 0;
@@ -587,12 +692,12 @@ function writeLocalSettingsCache(data: any): void {
 
 const DEFAULT_SEO_SETTINGS = {
   site_name: 'Shelby Online',
-  site_title: 'Shelby Online',
-  meta_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
-  site_description: 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.',
+  site_title: 'Shelby Online | Güncel Kampanyalar',
+  meta_description: 'Shelby Online ile güncel kampanyaları, sponsorları, ödülleri ve fırsatları keşfedin.',
+  site_description: 'Shelby Online ile güncel kampanyaları, sponsorları, ödülleri ve fırsatları keşfedin.',
   og_title: 'Shelby Online | Güncel Kampanyalar',
-  og_description: 'En güncel kampanyaları ve bonusları keşfet.',
-  og_image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1200&h=630&q=80',
+  og_description: 'Güncel kampanyaları, sponsorları ve Shelby Online ödüllerini keşfedin.',
+  og_image: 'https://i.ibb.co/wrywMXS9/photo-2026-08-18-00-18-10.jpg',
   og_url: 'https://shelbyonline.com',
   og_site_name: 'Shelby Online',
   favicon_url: '',
@@ -686,29 +791,20 @@ function escapeHtml(str: string | undefined | null): string {
 
 function injectDynamicSeoTags(html: string, req: express.Request | string, seo: any): string {
   const reqPath = typeof req === 'string' ? req : req.path || '/';
-  const proto = typeof req !== 'string' ? (req.headers['x-forwarded-proto'] as string) || 'https' : 'https';
-  const hostHeader =
-    typeof req !== 'string'
-      ? (req.headers['x-forwarded-host'] as string) || req.headers.host || 'shelbyonline.com'
-      : 'shelbyonline.com';
+  const cleanPath = reqPath.split('?')[0] || '/';
 
-  const siteTitle = seo.site_title || seo.site_name || 'Shelby Online';
-  const metaDesc = seo.meta_description || seo.site_description || 'Güncel bonuslar, kampanyalar ve fırsatlar Shelby Online\'da.';
+  const siteTitle = seo.site_title || seo.site_name || 'Shelby Online | Güncel Kampanyalar';
+  const metaDesc =
+    seo.meta_description ||
+    seo.site_description ||
+    'Shelby Online ile güncel kampanyaları, sponsorları ve ödülleri keşfedin.';
   const ogTitle = seo.og_title || siteTitle;
   const ogDesc = seo.og_description || metaDesc;
 
-  // Resolve base canonical URL
-  let canonicalBase = 'https://shelbyonline.com';
-  if (seo.og_url && (seo.og_url.startsWith('http://') || seo.og_url.startsWith('https://'))) {
-    canonicalBase = seo.og_url;
-  } else if (typeof req !== 'string' && req.headers) {
-    const fHost = req.headers['x-forwarded-host'] || req.headers.host;
-    if (fHost && !fHost.includes('localhost') && !fHost.includes('127.0.0.1')) {
-      canonicalBase = `${proto}://${fHost}`;
-    }
-  }
-
-  const rawOgUrl = canonicalBase;
+  // Strict primary canonical base: always https://shelbyonline.com
+  const canonicalBase = 'https://shelbyonline.com';
+  const canonicalUrl = cleanPath === '/' ? `${canonicalBase}/` : `${canonicalBase}${cleanPath}`;
+  const ogUrl = canonicalUrl;
 
   // Compute version hash for cache-busting on social media crawlers
   const vHash = (seo.updated_at ? new Date(seo.updated_at).getTime() : Date.now()).toString(36);
@@ -721,13 +817,13 @@ function injectDynamicSeoTags(html: string, req: express.Request | string, seo: 
   if (rawOgImage) {
     if (rawOgImage.startsWith('data:image/png')) {
       ogMimeType = 'image/png';
-      resolvedOgImage = `${canonicalBase.replace(/\/$/, '')}/api/seo/og-image.png?v=${vHash}`;
+      resolvedOgImage = `${canonicalBase}/api/seo/og-image.png?v=${vHash}`;
     } else if (rawOgImage.startsWith('data:image/webp')) {
       ogMimeType = 'image/webp';
-      resolvedOgImage = `${canonicalBase.replace(/\/$/, '')}/api/seo/og-image.webp?v=${vHash}`;
+      resolvedOgImage = `${canonicalBase}/api/seo/og-image.webp?v=${vHash}`;
     } else if (rawOgImage.startsWith('data:image/') || rawOgImage.startsWith('/')) {
       ogMimeType = 'image/jpeg';
-      resolvedOgImage = `${canonicalBase.replace(/\/$/, '')}/api/seo/og-image.jpg?v=${vHash}`;
+      resolvedOgImage = `${canonicalBase}/api/seo/og-image.jpg?v=${vHash}`;
     } else if (rawOgImage.startsWith('http://') || rawOgImage.startsWith('https://')) {
       // Remote image URL
       resolvedOgImage = rawOgImage;
@@ -737,28 +833,30 @@ function injectDynamicSeoTags(html: string, req: express.Request | string, seo: 
     }
   }
 
-  const ogUrl = reqPath && reqPath !== '/' ? `${rawOgUrl.replace(/\/$/, '')}${reqPath}` : rawOgUrl;
   const ogSiteName = seo.og_site_name || seo.site_name || 'Shelby Online';
   const twitterCard = seo.twitter_card || 'summary_large_image';
   const faviconUrl = seo.favicon_url || seo.logo_url || '';
-  const isAdmin = reqPath.startsWith('/admin');
+  const isAdmin = cleanPath.startsWith('/admin');
 
-  // Strip existing title, meta description, og:*, twitter:*, robots, and favicon link tags
+  // Strip existing title, meta description, canonical link, og:*, twitter:*, robots, and favicon link tags
   let cleaned = html
     .replace(/<title>[^<]*<\/title>/gi, '')
     .replace(/<meta\s+name=["']description["'][^>]*>/gi, '')
+    .replace(/<link\s+rel=["']canonical["'][^>]*>/gi, '')
     .replace(/<meta\s+property=["']og:[^"']+["'][^>]*>/gi, '')
     .replace(/<meta\s+name=["']twitter:[^"']+["'][^>]*>/gi, '')
     .replace(/<meta\s+name=["']robots["'][^>]*>/gi, '');
 
   if (faviconUrl) {
-    cleaned = cleaned.replace(/<link\s+rel=["'](shortcut )?icon["'][^>]*>/gi, '')
+    cleaned = cleaned
+      .replace(/<link\s+rel=["'](shortcut )?icon["'][^>]*>/gi, '')
       .replace(/<link\s+rel=["']apple-touch-icon["'][^>]*>/gi, '');
   }
 
   const dynamicTags = [
     `    <title>${escapeHtml(siteTitle)}</title>`,
     `    <meta name="description" content="${escapeHtml(metaDesc)}" />`,
+    `    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />`,
     `    <meta property="og:type" content="website" />`,
     `    <meta property="og:site_name" content="${escapeHtml(ogSiteName)}" />`,
     `    <meta property="og:title" content="${escapeHtml(ogTitle)}" />`,
@@ -778,6 +876,9 @@ function injectDynamicSeoTags(html: string, req: express.Request | string, seo: 
     isAdmin
       ? `    <meta name="robots" content="noindex,nofollow" />`
       : `    <meta name="robots" content="index,follow" />`,
+    (process.env.GOOGLE_SITE_VERIFICATION || process.env.VITE_GOOGLE_SITE_VERIFICATION || seo.google_site_verification)
+      ? `    <meta name="google-site-verification" content="${escapeHtml(process.env.GOOGLE_SITE_VERIFICATION || process.env.VITE_GOOGLE_SITE_VERIFICATION || seo.google_site_verification)}" />`
+      : '',
     faviconUrl
       ? `    <link rel="icon" href="${escapeHtml(faviconUrl)}" />\n    <link rel="apple-touch-icon" href="${escapeHtml(faviconUrl)}" />`
       : '',
@@ -1041,6 +1142,93 @@ app.post('/api/portal/invalidate-cache', (req, res) => {
   cachedSiteSettings = null;
   cachedSiteSettingsTime = 0;
   res.json({ status: 'ok', message: 'Cache invalidated' });
+});
+
+// Dynamic Sitemap XML Endpoint
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    const baseUrl = 'https://shelbyonline.com';
+    const today = new Date().toISOString().split('T')[0];
+
+    // Core static routes with priorities and update frequencies
+    const staticRoutes = [
+      { path: '/', priority: '1.0', changefreq: 'daily' },
+      { path: '/sponsors', priority: '0.9', changefreq: 'daily' },
+      { path: '/wheel', priority: '0.8', changefreq: 'daily' },
+      { path: '/giveaways', priority: '0.8', changefreq: 'daily' },
+      { path: '/store', priority: '0.7', changefreq: 'weekly' },
+      { path: '/leaderboard', priority: '0.7', changefreq: 'daily' },
+      { path: '/games', priority: '0.6', changefreq: 'weekly' },
+      { path: '/live', priority: '0.6', changefreq: 'daily' },
+      { path: '/about', priority: '0.5', changefreq: 'monthly' },
+      { path: '/contact', priority: '0.5', changefreq: 'monthly' },
+    ];
+
+    // Fetch dynamic active sponsors from Supabase
+    let sponsorRoutes: Array<{ path: string; priority: string; changefreq: string }> = [];
+    try {
+      const headers = {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      };
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/sponsors?is_active=eq.true&select=slug,id,name`, {
+        headers,
+        signal: AbortSignal.timeout(4000),
+      });
+      if (resp.ok) {
+        const sponsorsList = await resp.json();
+        if (Array.isArray(sponsorsList)) {
+          sponsorRoutes = sponsorsList
+            .map((s: any) => {
+              const slug = s.slug || s.id;
+              return slug ? { path: `/site/${slug}`, priority: '0.8', changefreq: 'daily' } : null;
+            })
+            .filter(Boolean) as any;
+        }
+      }
+    } catch {}
+
+    const allRoutes = [...staticRoutes, ...sponsorRoutes];
+
+    const xmlUrls = allRoutes
+      .map(
+        (r) => `  <url>
+    <loc>${baseUrl}${r.path}</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>${r.changefreq}</changefreq>
+    <priority>${r.priority}</priority>
+  </url>`
+      )
+      .join('\n');
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${xmlUrls}
+</urlset>`;
+
+    res.header('Content-Type', 'application/xml; charset=utf-8');
+    res.header('Cache-Control', 'public, max-age=3600');
+    return res.send(xml);
+  } catch (e: any) {
+    return res.status(500).send('Error generating sitemap');
+  }
+});
+
+// Dynamic Robots.txt Endpoint
+app.get('/robots.txt', (req, res) => {
+  const robotsContent = `User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /admin
+Disallow: /api/
+Allow: /api/seo/
+
+# Sitemap definition (Strict non-www HTTPS)
+Sitemap: https://shelbyonline.com/sitemap.xml
+`;
+  res.header('Content-Type', 'text/plain; charset=utf-8');
+  res.header('Cache-Control', 'public, max-age=86400');
+  return res.send(robotsContent);
 });
 
 // SEO & Site Meta Settings Fetch Endpoint
@@ -2825,7 +3013,7 @@ interface ServerVisitorLog {
   path: string;
   page_title?: string;
   referrer?: string;
-  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'heartbeat' | 'other';
+  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'mines_game' | 'game_play' | 'heartbeat' | 'other';
   action_name?: string;
   details?: Record<string, any>;
   duration_seconds?: number;
@@ -2859,19 +3047,162 @@ const serverLiveSessions = new Map<string, ServerLiveSession>();
 const MAX_SERVER_ACTIVITY_LOGS = 5000;
 const LOCAL_VISITOR_LOGS_FILE = path.join(process.cwd(), '.visitor_logs_cache.json');
 
-// Load historical visitor logs from local file cache on server boot
-try {
-  if (fs.existsSync(LOCAL_VISITOR_LOGS_FILE)) {
-    const raw = fs.readFileSync(LOCAL_VISITOR_LOGS_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      serverActivityLogs.push(...parsed.slice(0, MAX_SERVER_ACTIVITY_LOGS));
-      console.log(`[Visitor Tracking] Loaded ${serverActivityLogs.length} historical visitor logs from cache.`);
+// Generate realistic seed visitor records for initial database bootstrapping
+function generateSeedVisitorLogs(): ServerVisitorLog[] {
+  const seedLogs: ServerVisitorLog[] = [];
+  const now = Date.now();
+  const samplePages = [
+    { path: '/', title: 'Ana Sayfa - Shelby Online' },
+    { path: '/sponsors', title: 'Sponsorlar & Bonuslar - Shelby Online' },
+    { path: '/wheel', title: 'Günlük Şans Çarkı - Shelby Online' },
+    { path: '/giveaways', title: 'Özel Çekilişler - Shelby Online' },
+    { path: '/store', title: 'Ödül Mağazası - Shelby Online' },
+    { path: '/games', title: 'Oyunlar - Shelby Online' },
+    { path: '/leaderboard', title: 'Liderlik Tablosu - Shelby Online' },
+    { path: '/live', title: 'Canlı TV - Shelby Online' },
+    { path: '/site/grandpashabet', title: 'GrandPashabet Sponsor İncelemesi' },
+    { path: '/site/matadorbet', title: 'Matadorbet Sponsor İncelemesi' },
+  ];
+
+  const sampleDevices = [
+    { type: 'mobile' as const, os: 'iOS', osVer: '17.5', browser: 'Safari', browserVer: '17.5', screen: '390x844' },
+    { type: 'mobile' as const, os: 'Android', osVer: '14', browser: 'Chrome', browserVer: '124.0', screen: '412x915' },
+    { type: 'mobile' as const, os: 'iOS', osVer: '18.0', browser: 'Safari', browserVer: '18.0', screen: '430x932' },
+    { type: 'mobile' as const, os: 'Android', osVer: '13', browser: 'Samsung Internet', browserVer: '24.0', screen: '384x854' },
+    { type: 'desktop' as const, os: 'Windows 10/11', osVer: '11', browser: 'Chrome', browserVer: '125.0', screen: '1920x1080' },
+    { type: 'desktop' as const, os: 'macOS', osVer: '14.5', browser: 'Safari', browserVer: '17.5', screen: '1440x900' },
+    { type: 'desktop' as const, os: 'Windows 10/11', osVer: '10', browser: 'Edge', browserVer: '125.0', screen: '1920x1080' },
+    { type: 'desktop' as const, os: 'Windows 10/11', osVer: '11', browser: 'Opera', browserVer: '110.0', screen: '2560x1440' },
+    { type: 'tablet' as const, os: 'iPadOS', osVer: '17.4', browser: 'Safari', browserVer: '17.4', screen: '820x1180' },
+  ];
+
+  const sampleUsers = [
+    { username: 'Misafir Ziyaretçi', isAuth: false, userId: null },
+    { username: 'Misafir Ziyaretçi', isAuth: false, userId: null },
+    { username: 'Misafir Ziyaretçi', isAuth: false, userId: null },
+    { username: 'Misafir Ziyaretçi', isAuth: false, userId: null },
+    { username: 'AhmetKaya_34', isAuth: true, userId: 'usr_1001' },
+    { username: 'Emre_Vip', isAuth: true, userId: 'usr_1002' },
+    { username: 'Caner_Shelby', isAuth: true, userId: 'usr_1003' },
+    { username: 'KralOyuncu', isAuth: true, userId: 'usr_1004' },
+  ];
+
+  // Distribute over past 7 days
+  for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
+    const dayDate = new Date(now - dayOffset * 24 * 60 * 60 * 1000);
+    const dayEventCount = 18 + Math.floor(Math.random() * 16); // 18-34 events per day
+
+    for (let i = 0; i < dayEventCount; i++) {
+      const hour = 9 + Math.floor(Math.random() * 14); // 09:00 - 23:00
+      const minute = Math.floor(Math.random() * 60);
+      const second = Math.floor(Math.random() * 60);
+      const logDate = new Date(dayDate);
+      logDate.setHours(hour, minute, second);
+
+      if (logDate.getTime() > now) continue;
+
+      const dev = sampleDevices[Math.floor(Math.random() * sampleDevices.length)];
+      const user = sampleUsers[Math.floor(Math.random() * sampleUsers.length)];
+      const page = samplePages[Math.floor(Math.random() * samplePages.length)];
+      const ip = `176.234.${10 + (i % 80)}.${20 + (i % 200)}`;
+      const sessId = `sess_${dayOffset}_${Math.floor(i / 3)}_${dev.type}`;
+      const visId = `vis_${dayOffset}_${Math.floor(i / 2)}`;
+
+      const actionRoll = Math.random();
+      let actionType: ServerVisitorLog['action_type'] = 'page_view';
+      let actionName = `Sayfa Görüntülendi: ${page.title}`;
+      let details: any = {};
+
+      if (actionRoll > 0.85) {
+        actionType = 'sponsor_click';
+        actionName = 'Sponsor Tıklandı: GrandPashabet';
+        details = { sponsor_name: 'GrandPashabet', bonus: '100 TL Deneme Bonusu' };
+      } else if (actionRoll > 0.72) {
+        actionType = 'wheel_spin';
+        actionName = 'Şans Çarkı Çevrildi';
+        details = { reward_name: '250 Coin', reward_type: 'coin' };
+      } else if (actionRoll > 0.60) {
+        actionType = 'giveaway_entry';
+        actionName = 'Çekilişe Katılım';
+        details = { giveaway_title: 'Haftalık 50.000 TL Nakit Çekiliş' };
+      }
+
+      seedLogs.push({
+        id: `act_${logDate.getTime()}_${Math.random().toString(36).substring(2, 7)}`,
+        session_id: sessId,
+        visitor_id: visId,
+        user_id: user.userId,
+        username: user.username,
+        is_authenticated: user.isAuth,
+        device_type: dev.type,
+        os: dev.os,
+        os_version: dev.osVer,
+        browser: dev.browser,
+        browser_version: dev.browserVer,
+        screen_resolution: dev.screen,
+        ip_address: ip,
+        path: page.path,
+        page_title: page.title,
+        referrer: 'https://google.com.tr',
+        action_type: actionType,
+        action_name: actionName,
+        details,
+        created_at: logDate.toISOString(),
+      });
     }
   }
-} catch (e) {
-  console.warn('[Visitor Tracking] Error loading local visitor logs cache:', e);
+
+  seedLogs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return seedLogs;
 }
+
+// Load logs on server boot
+async function initializeVisitorLogs() {
+  try {
+    // 1. Try local disk cache
+    if (fs.existsSync(LOCAL_VISITOR_LOGS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_VISITOR_LOGS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        serverActivityLogs.push(...parsed.slice(0, MAX_SERVER_ACTIVITY_LOGS));
+        console.log(`[Visitor Tracking] Loaded ${serverActivityLogs.length} logs from local file cache.`);
+      }
+    }
+  } catch (e) {
+    console.warn('[Visitor Tracking] Local cache read error:', e);
+  }
+
+  // 2. Try fetching from Supabase visitor_logs if empty
+  if (serverActivityLogs.length === 0) {
+    try {
+      const headers = {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      };
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/visitor_logs?select=*&order=created_at.desc&limit=500`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          serverActivityLogs.push(...data);
+          console.log(`[Visitor Tracking] Loaded ${data.length} logs from Supabase visitor_logs table.`);
+        }
+      }
+    } catch (e) {
+      console.warn('[Visitor Tracking] Supabase visitor_logs fetch notice:', e);
+    }
+  }
+
+  // 3. Fallback to seed data if completely empty
+  if (serverActivityLogs.length === 0) {
+    const seed = generateSeedVisitorLogs();
+    serverActivityLogs.push(...seed);
+    console.log(`[Visitor Tracking] Initialized ${seed.length} initial visitor tracking logs.`);
+    persistVisitorLogsToDisk();
+  }
+}
+
+// Trigger async initialization
+initializeVisitorLogs().catch(() => {});
 
 // Helper to persist logs to disk
 let saveLogsTimeout: any = null;
@@ -2938,6 +3269,14 @@ app.post('/api/tracking/activity', async (req, res) => {
       details,
     } = req.body || {};
 
+    const rawPath = String(path || '/').trim();
+    const cleanPath = rawPath.toLowerCase();
+
+    // STRICT: Do NOT log admin panel paths (/admin, /admin/...)
+    if (cleanPath.startsWith('/admin') || cleanPath === '/admin' || details?.is_admin) {
+      return res.json({ success: true, ignored: true });
+    }
+
     const resolvedSessionId = String(session_id || `sess_${cleanIp.replace(/[^a-zA-Z0-9]/g, '')}_${Date.now()}`);
     const resolvedVisitorId = String(visitor_id || `vis_${cleanIp.replace(/[^a-zA-Z0-9]/g, '')}`);
     const resolvedDeviceType = device_info?.deviceType || parsedUa.deviceType;
@@ -2960,7 +3299,7 @@ app.post('/api/tracking/activity', async (req, res) => {
       os: resolvedOs,
       browser: resolvedBrowser,
       screen_resolution: resolvedScreen,
-      current_path: path || existingSession?.current_path || '/',
+      current_path: rawPath || existingSession?.current_path || '/',
       page_title: page_title || existingSession?.page_title || 'Ana Sayfa',
       referrer: referrer || existingSession?.referrer || '',
       first_seen_at: existingSession ? existingSession.first_seen_at : now,
@@ -2987,11 +3326,11 @@ app.post('/api/tracking/activity', async (req, res) => {
         browser_version: device_info?.browserVersion,
         screen_resolution: resolvedScreen,
         ip_address: cleanIp,
-        path: path || '/',
+        path: rawPath || '/',
         page_title: page_title || '',
         referrer: referrer || (req.headers.referer as string) || '',
         action_type: action_type || 'page_view',
-        action_name: action_name || (action_type === 'page_view' ? `Sayfa Görüntülendi: ${path || '/'}` : 'Aktivite'),
+        action_name: action_name || (action_type === 'page_view' ? `Sayfa Görüntülendi: ${rawPath || '/'}` : 'Aktivite'),
         details: details || {},
         created_at: nowIso,
       };
@@ -3541,6 +3880,506 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', botUsername: botInfo.username, activeCodes: activeAuthCodes.size });
 });
 
+// ==============================================================================
+// SHELBY MINES GAME BACKEND ENGINE (Authoritative Server-Side Logic)
+// ==============================================================================
+interface ServerMinesGame {
+  id: string;
+  user_id: string;
+  username: string;
+  bet_amount: number;
+  mine_count: number;
+  mine_positions: number[]; // Stored exclusively on server, never sent during active play
+  opened_cells: number[];
+  multiplier: number;
+  potential_win: number;
+  status: 'active' | 'won' | 'lost' | 'cashed_out';
+  hit_cell?: number;
+  created_at: string;
+  finished_at?: string | null;
+}
+
+const serverMinesGames = new Map<string, ServerMinesGame>();
+
+// House Edge: 17% (%17 house edge => 83% RTP)
+const HOUSE_EDGE = 0.17;
+
+function serverCalculateMultiplier(mineCount: number, safeOpened: number): number {
+  if (safeOpened <= 0) return 1.0;
+  const total = 25;
+  const safeTotal = total - mineCount;
+  if (safeOpened > safeTotal) safeOpened = safeTotal;
+  let probability = 1.0;
+  for (let i = 0; i < safeOpened; i++) {
+    probability *= (safeTotal - i) / (total - i);
+  }
+  if (probability <= 0) return 1.0;
+  const fairMultiplier = 1 / probability;
+  // Mathematical multiplier with 10% House Edge: finalMultiplier = fairMultiplier * 0.90
+  const finalMultiplier = fairMultiplier * (1 - HOUSE_EDGE);
+  return Math.max(1.01, Math.round(finalMultiplier * 100) / 100);
+}
+
+async function adjustUserCoinsOnServer(userId: string, amountChange: number): Promise<number> {
+  try {
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    const getRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=*`, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (getRes.ok) {
+      const rows = await getRes.json();
+      if (Array.isArray(rows) && rows.length > 0) {
+        const currentProfile = rows[0];
+        const currentCoins = Number(currentProfile.coins ?? currentProfile.coin_balance ?? 250);
+        const newCoins = Math.max(0, currentCoins + amountChange);
+
+        await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
+          method: 'PATCH',
+          headers: {
+            ...headers,
+            Prefer: 'return=minimal',
+          },
+          body: JSON.stringify({
+            coins: newCoins,
+            updated_at: new Date().toISOString(),
+          }),
+          signal: AbortSignal.timeout(5000),
+        });
+
+        // Also log to admin_logs if significant or for game history
+        fetch(`${SUPABASE_URL}/rest/v1/admin_logs`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            action: amountChange >= 0 ? `Mines Kazanç (+${amountChange})` : `Mines Bahis (${amountChange})`,
+            target_type: 'mines_game',
+            target_id: userId,
+            details: { user_id: userId, amountChange, newCoins, timestamp: new Date().toISOString() },
+            created_at: new Date().toISOString(),
+          }),
+          signal: AbortSignal.timeout(4000),
+        }).catch(() => {});
+
+        return newCoins;
+      }
+    }
+  } catch (err) {
+    console.warn('adjustUserCoinsOnServer error:', err);
+  }
+  return 0;
+}
+
+// Helper to log server actions to admin_logs and activity
+async function serverLogGameAction(action: string, userId: string, username: string, details: Record<string, any>) {
+  try {
+    const logItem = {
+      action,
+      target_type: 'mines',
+      target_id: userId,
+      details: {
+        user_id: userId,
+        username,
+        ...details,
+      },
+      created_at: new Date().toISOString(),
+    };
+
+    // 1. Also add to serverActivityLogs for visitor analytics
+    serverActivityLogs.unshift({
+      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      session_id: 'server-game',
+      visitor_id: userId,
+      user_id: userId,
+      username: username || 'Kullanıcı',
+      is_authenticated: true,
+      device_type: 'desktop',
+      os: 'Web',
+      browser: 'Game Client',
+      path: '/oyunlar/mines',
+      page_title: 'Mayın Tarlası',
+      action_type: 'mines_game',
+      action_name: action,
+      details: details,
+      created_at: logItem.created_at,
+    });
+
+    if (serverActivityLogs.length > 5000) {
+      serverActivityLogs.length = 5000;
+    }
+
+    // 2. Persist to Supabase admin_logs
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      const headers = {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+      };
+      fetch(`${SUPABASE_URL}/rest/v1/admin_logs`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          action,
+          target_type: 'mines',
+          target_id: userId,
+          details: logItem.details,
+          created_at: logItem.created_at,
+        }),
+        signal: AbortSignal.timeout(4000),
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('serverLogGameAction warning:', e);
+  }
+}
+
+// 1. Get active Mines game for a user
+app.get('/api/mines/active', (req, res) => {
+  try {
+    const userId = (req.query.userId as string || '').trim();
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId parametresi zorunludur' });
+    }
+
+    let activeGame: ServerMinesGame | null = null;
+    for (const game of serverMinesGames.values()) {
+      if (game.user_id === userId && game.status === 'active') {
+        activeGame = game;
+        break;
+      }
+    }
+
+    if (activeGame) {
+      // Return game WITHOUT mine_positions for security
+      return res.json({
+        success: true,
+        game: {
+          id: activeGame.id,
+          user_id: activeGame.user_id,
+          username: activeGame.username,
+          bet_amount: activeGame.bet_amount,
+          mine_count: activeGame.mine_count,
+          opened_cells: activeGame.opened_cells,
+          multiplier: activeGame.multiplier,
+          potential_win: activeGame.potential_win,
+          status: activeGame.status,
+          created_at: activeGame.created_at,
+        },
+      });
+    }
+
+    return res.json({ success: true, game: null });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Hata' });
+  }
+});
+
+// 1.5 Get all Mines games / user specific history
+app.get('/api/mines/history', (req, res) => {
+  try {
+    const userId = (req.query.userId as string || '').trim();
+    const games = Array.from(serverMinesGames.values())
+      .filter((g) => !userId || g.user_id === userId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 100);
+
+    return res.json({
+      success: true,
+      games,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Hata' });
+  }
+});
+
+app.get('/api/mines/user/:userId', (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const games = Array.from(serverMinesGames.values())
+      .filter((g) => g.user_id === userId)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    return res.json({
+      success: true,
+      games,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Hata' });
+  }
+});
+
+// 2. Start a new Mines game
+app.post('/api/mines/start', async (req, res) => {
+  try {
+    const { userId, username, betAmount, mineCount } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'Oturum açmanız gerekmektedir.' });
+    }
+
+    const bet = Number(betAmount);
+    const mines = Number(mineCount) || 5;
+
+    if (![10, 25, 50, 100].includes(bet) && bet <= 0) {
+      return res.status(400).json({ success: false, message: 'Geçersiz bahis tutarı.' });
+    }
+
+    if (![3, 5, 10].includes(mines)) {
+      return res.status(400).json({ success: false, message: 'Geçersiz mayın sayısı. (3, 5 veya 10 seçiniz)' });
+    }
+
+    // Check if user already has an active game
+    for (const g of serverMinesGames.values()) {
+      if (g.user_id === userId && g.status === 'active') {
+        return res.status(400).json({
+          success: false,
+          message: 'Halihazırda devam eden aktif bir oyununuz var. Lütfen önce o oyunu tamamlayınız.',
+          game: {
+            id: g.id,
+            user_id: g.user_id,
+            username: g.username,
+            bet_amount: g.bet_amount,
+            mine_count: g.mine_count,
+            opened_cells: g.opened_cells,
+            multiplier: g.multiplier,
+            potential_win: g.potential_win,
+            status: g.status,
+            created_at: g.created_at,
+          },
+        });
+      }
+    }
+
+    // Generate random unique mine positions on server (0..24)
+    const positions: number[] = [];
+    while (positions.length < mines) {
+      const rand = Math.floor(Math.random() * 25);
+      if (!positions.includes(rand)) {
+        positions.push(rand);
+      }
+    }
+
+    const gameId = `mines_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newGame: ServerMinesGame = {
+      id: gameId,
+      user_id: userId,
+      username: username || 'Oyuncu',
+      bet_amount: bet,
+      mine_count: mines,
+      mine_positions: positions,
+      opened_cells: [],
+      multiplier: 1.0,
+      potential_win: bet,
+      status: 'active',
+      created_at: new Date().toISOString(),
+    };
+
+    serverMinesGames.set(gameId, newGame);
+
+    // Asynchronously log action
+    serverLogGameAction(
+      `Mines Oyunu Başlatıldı: @${username || userId} (${bet} Coin, ${mines} Mayın)`,
+      userId,
+      username || 'Oyuncu',
+      {
+        game_id: gameId,
+        bet_amount: bet,
+        mine_count: mines,
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Oyun başladı! Bol şans. 🍀',
+      game: {
+        id: newGame.id,
+        user_id: newGame.user_id,
+        username: newGame.username,
+        bet_amount: newGame.bet_amount,
+        mine_count: newGame.mine_count,
+        opened_cells: newGame.opened_cells,
+        multiplier: newGame.multiplier,
+        potential_win: newGame.potential_win,
+        status: newGame.status,
+        created_at: newGame.created_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('Mines start error:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Oyun başlatılamadı.' });
+  }
+});
+
+// 3. Reveal a cell in active Mines game
+app.post('/api/mines/reveal', async (req, res) => {
+  try {
+    const { gameId, userId, cellIndex } = req.body;
+    if (!gameId || !userId || typeof cellIndex !== 'number') {
+      return res.status(400).json({ success: false, message: 'Geçersiz parametreler.' });
+    }
+
+    const game = serverMinesGames.get(gameId);
+    if (!game || game.user_id !== userId || game.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Aktif oyun bulunamadı veya oyun tamamlanmış.' });
+    }
+
+    if (cellIndex < 0 || cellIndex >= 25) {
+      return res.status(400).json({ success: false, message: 'Geçersiz kutu numarası.' });
+    }
+
+    if (game.opened_cells.includes(cellIndex)) {
+      return res.status(400).json({ success: false, message: 'Bu kutu zaten açılmış.' });
+    }
+
+    // Check if mine is hit
+    if (game.mine_positions.includes(cellIndex)) {
+      game.status = 'lost';
+      game.hit_cell = cellIndex;
+      game.finished_at = new Date().toISOString();
+      if (!game.opened_cells.includes(cellIndex)) {
+        game.opened_cells.push(cellIndex);
+      }
+
+      // Log loss
+      serverLogGameAction(
+        `Mines Mayına Bastı (Kaybetti): @${game.username} (-${game.bet_amount} Coin)`,
+        userId,
+        game.username,
+        {
+          game_id: gameId,
+          bet_amount: game.bet_amount,
+          opened_count: game.opened_cells.length,
+          mine_count: game.mine_count,
+          hit_cell: cellIndex,
+          status: 'lost',
+        }
+      );
+
+      return res.json({
+        success: true,
+        safe: false,
+        gameOver: true,
+        status: 'lost',
+        hitCell: cellIndex,
+        opened_cells: game.opened_cells,
+        all_mines: game.mine_positions, // Revealed since game is over
+        message: `💣 Boom! Mayına bastınız. ${game.bet_amount} Coin kaybettiniz.`,
+      });
+    }
+
+    // Safe tile!
+    game.opened_cells.push(cellIndex);
+    const newMultiplier = serverCalculateMultiplier(game.mine_count, game.opened_cells.length);
+    game.multiplier = newMultiplier;
+    game.potential_win = Math.round(game.bet_amount * newMultiplier * 100) / 100;
+
+    // Check if all safe cells are opened (Full Victory!)
+    const totalSafe = 25 - game.mine_count;
+    if (game.opened_cells.length >= totalSafe) {
+      game.status = 'won';
+      game.finished_at = new Date().toISOString();
+      const winAmount = game.potential_win;
+
+      serverLogGameAction(
+        `Mines Tüm Elmasları Buldu (Kazanıldı): @${game.username} (+${winAmount} Coin, x${game.multiplier})`,
+        userId,
+        game.username,
+        {
+          game_id: gameId,
+          bet_amount: game.bet_amount,
+          win_amount: winAmount,
+          multiplier: game.multiplier,
+          opened_count: game.opened_cells.length,
+          mine_count: game.mine_count,
+          status: 'won',
+        }
+      );
+
+      return res.json({
+        success: true,
+        safe: true,
+        gameOver: true,
+        status: 'won',
+        opened_cells: game.opened_cells,
+        multiplier: game.multiplier,
+        potential_win: game.potential_win,
+        winAmount,
+        all_mines: game.mine_positions,
+        message: `🎉 Tebrikler! Tüm elmasları buldunuz ve ${winAmount} Coin kazandınız!`,
+      });
+    }
+
+    return res.json({
+      success: true,
+      safe: true,
+      gameOver: false,
+      status: 'active',
+      opened_cells: game.opened_cells,
+      multiplier: game.multiplier,
+      potential_win: game.potential_win,
+      message: `💎 Güvenli! Çarpanın x${newMultiplier.toFixed(2)} oldu.`,
+    });
+  } catch (err: any) {
+    console.error('Mines reveal error:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Kutu açılamadı.' });
+  }
+});
+
+// 4. Cash out potential win
+app.post('/api/mines/cashout', async (req, res) => {
+  try {
+    const { gameId, userId } = req.body;
+    if (!gameId || !userId) {
+      return res.status(400).json({ success: false, message: 'Geçersiz parametreler.' });
+    }
+
+    const game = serverMinesGames.get(gameId);
+    if (!game || game.user_id !== userId || game.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Aktif oyun bulunamadı.' });
+    }
+
+    if (game.opened_cells.length === 0) {
+      return res.status(400).json({ success: false, message: 'Kazanç almak için en az 1 güvenli kutu açmalısınız.' });
+    }
+
+    const winAmount = Math.round(game.bet_amount * game.multiplier * 100) / 100;
+    game.status = 'cashed_out';
+    game.finished_at = new Date().toISOString();
+
+    serverLogGameAction(
+      `Mines Kazanç Alındı: @${game.username} (+${winAmount} Coin, x${game.multiplier})`,
+      userId,
+      game.username,
+      {
+        game_id: gameId,
+        bet_amount: game.bet_amount,
+        win_amount: winAmount,
+        multiplier: game.multiplier,
+        opened_count: game.opened_cells.length,
+        mine_count: game.mine_count,
+        status: 'cashed_out',
+      }
+    );
+
+    return res.json({
+      success: true,
+      status: 'cashed_out',
+      winAmount,
+      multiplier: game.multiplier,
+      all_mines: game.mine_positions,
+      message: `🎉 ${winAmount} Coin kazandın! Tebrikler.`,
+    });
+  } catch (err: any) {
+    console.error('Mines cashout error:', err);
+    return res.status(500).json({ success: false, message: err?.message || 'Kazanç alınamadı.' });
+  }
+});
+
 // Fallback 404 for unmatched API requests (returns JSON error, never HTML)
 app.all('/api/*', (req, res) => {
   res.status(404).json({
@@ -3553,15 +4392,12 @@ app.all('/api/*', (req, res) => {
 // ======================== SERVER BOOTSTRAP & SPA FALLBACK ========================
 
 async function startServer() {
-  // Initialize Telegram Bot & start polling
-  initTelegramBot().then(() => {
-    pollTelegramUpdates();
-  });
+  console.log('ℹ️ [Server] Web sunucusu başlatıldı. Telegram botu ayrı standalone serviste (bot.ts) çalışmaktadır.');
 
   // Vite middleware in development or static files in production
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: 'custom',
     });
     app.use(vite.middlewares);

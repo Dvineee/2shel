@@ -9,6 +9,7 @@ import {
   Trophy,
   ShoppingBag,
   Gamepad2,
+  Bomb,
   Info,
   Mail,
   ChevronLeft,
@@ -91,6 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       title: 'ETKİNLİKLER & KAZANÇ',
       items: [
+        { label: 'Shelby Mines', to: '/games/mines', icon: Bomb, highlight: true, badge: 'YENİ', badgeColor: 'from-rose-500/20 to-purple-500/20 text-rose-300 border-rose-500/40' },
         { label: 'Günlük Çark', to: '/wheel', icon: Disc, highlight: true, badge: 'ÜCRETSİZ', badgeColor: 'from-violet-500/20 to-purple-500/20 text-violet-300 border-violet-500/40' },
         { label: 'Çekilişler', to: '/giveaways', icon: Gift },
         { label: 'Canlı TV', to: '/live', icon: Tv },

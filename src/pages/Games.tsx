@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Gamepad2, Sparkles, Flame, Play, Trophy, RefreshCw } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
+import { Gamepad2, Sparkles, Flame, Play, Trophy, RefreshCw, Bomb, ArrowRight } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 
@@ -85,6 +86,34 @@ export const GamesPage: React.FC = () => {
         <p className="mt-2 text-xs sm:text-sm text-slate-300 max-w-xl mx-auto">
           En sevdiğiniz oyun kategorilerini keşfedin, demo alanında şansınızı ücretsiz test edin.
         </p>
+      </div>
+
+      {/* FEATURED GAME: SHELBY MINES */}
+      <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-[#200c3b] via-[#160a2c] to-[#0d061c] border-2 border-rose-500/50 shadow-2xl shadow-purple-950/50 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group">
+        <div className="space-y-3 text-center md:text-left z-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-black">
+            <Bomb className="w-3.5 h-3.5 text-rose-400 animate-bounce" />
+            <span>YENİ CANLI ETKİNLİK OYUNU</span>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-black text-white flex items-center justify-center md:justify-start gap-2">
+            <span>💣 Shelby Mines</span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              Coin ile Oyna
+            </span>
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-300 max-w-lg leading-relaxed">
+            5x5 oyun tahtasında mayınlara basmadan elmasları topla, çarpanını x100'e kadar katla ve kazancını anında coin bakiyene çek!
+          </p>
+        </div>
+
+        <NavLink
+          to="/games/mines"
+          className="px-7 py-4 rounded-2xl bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-black text-sm sm:text-base flex items-center gap-2.5 shadow-xl shadow-rose-950/80 hover:scale-105 active:scale-95 transition-all shrink-0 z-10 border border-rose-400/50"
+        >
+          <Play className="w-5 h-5 fill-current" />
+          <span>ŞİMDİ OYNA</span>
+          <ArrowRight className="w-5 h-5" />
+        </NavLink>
       </div>
 
       {/* Interactive Demo Slot Machine */}

@@ -28,26 +28,32 @@ export const VisitorTrackerListener: React.FC = () => {
     return () => clearTimeout(timeout);
   }, [location.pathname, location.search, user?.id, user?.username]);
 
-  // 2. Periodic Heartbeat every 45 seconds while tab is active to calculate real-time live visitors
+  // 2. Periodic Heartbeat every 30 seconds while tab is active to calculate real-time live visitors
   useEffect(() => {
     // Ignore all admin panel paths
     if (location.pathname.startsWith('/admin')) {
       return;
     }
 
-    const heartbeatInterval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
+    const sendHeartbeat = () => {
+      if (document.visibilityState === 'visible' && !location.pathname.startsWith('/admin')) {
         activityTracker.trackActivity({
           action_type: 'heartbeat',
           path: location.pathname + location.search,
-          page_title: document.title,
+          page_title: document.title || 'Shelby Online',
           user_id: user?.id || null,
           username: user?.username || null,
         });
       }
-    }, 45000);
+    };
 
-    return () => clearInterval(heartbeatInterval);
+    const heartbeatInterval = setInterval(sendHeartbeat, 30000);
+    document.addEventListener('visibilitychange', sendHeartbeat);
+
+    return () => {
+      clearInterval(heartbeatInterval);
+      document.removeEventListener('visibilitychange', sendHeartbeat);
+    };
   }, [location.pathname, location.search, user?.id, user?.username]);
 
   return null;

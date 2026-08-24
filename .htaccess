@@ -1,5 +1,5 @@
 # ==============================================================================
-# SPONSORHUB - LiteSpeed & Apache Production Configuration (.htaccess)
+# SHELBY ONLINE - Apache & LiteSpeed Production Configuration (.htaccess)
 # ==============================================================================
 
 # 1. Disable Directory Browsing & MultiViews
@@ -9,81 +9,82 @@ Options -Indexes -MultiViews
 AddDefaultCharset UTF-8
 DefaultLanguage tr-TR
 
-# 3. Single Page Application (SPA) URL Rewriting
-# Tüm rotaları (/giveaways, /wheel, /store, /sponsors, /admin/* vb.) index.html'e yönlendirir.
+# 3. URL Canonicalization & React SPA Rewriting
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
 
-  # HTTPS Yönlendirmesi (Gerektiğinde aktifleştirilebilir)
-  # RewriteCond %{HTTPS} off
-  # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+  # ----------------------------------------------------------------------
+  # A. Canonical Redirection: Force HTTPS and Force Non-WWW (301 Permanent)
+  # ----------------------------------------------------------------------
+  # 1. Redirect HTTP to HTTPS OR www.shelbyonline.com to https://shelbyonline.com
+  RewriteCond %{HTTPS} off [OR]
+  RewriteCond %{HTTP_HOST} ^www\.shelbyonline\.com$ [NC]
+  RewriteRule ^(.*)$ https://shelbyonline.com/$1 [L,R=301]
 
-  # Gerçek dosya, klasör veya sembolik bağlantı ise yönlendirme yapma
+  # ----------------------------------------------------------------------
+  # B. Generic WWW to Non-WWW fallback for any custom domain
+  # ----------------------------------------------------------------------
+  RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+  RewriteRule ^(.*)$ https://%1/$1 [L,R=301]
+
+  # ----------------------------------------------------------------------
+  # C. Do NOT rewrite existing physical files, directories or symlinks
+  # ----------------------------------------------------------------------
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d [OR]
   RewriteCond %{REQUEST_FILENAME} -l
   RewriteRule ^ - [L]
 
-  # Diğer tüm istekleri index.html'e ilet
+  # ----------------------------------------------------------------------
+  # D. React SPA Fallback: Route all other requests to index.html
+  # ----------------------------------------------------------------------
   RewriteRule ^ index.html [QSA,L]
 </IfModule>
 
-# 4. LiteSpeed / Apache 404 Fallback
+# 4. Error Documents Fallback
 ErrorDocument 404 /index.html
 
-# 5. Security Headers
+# 5. Security & Privacy Headers
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-XSS-Protection "1; mode=block"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
-  # Header always set X-Frame-Options "SAMEORIGIN"
 </IfModule>
 
-# 6. Gzip / Deflate Compression (Performans & Hızlı Yükleme)
+# 6. Gzip / Deflate Compression
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html
-  AddOutputFilterByType DEFLATE text/plain
-  AddOutputFilterByType DEFLATE text/xml
-  AddOutputFilterByType DEFLATE text/css
-  AddOutputFilterByType DEFLATE text/javascript
-  AddOutputFilterByType DEFLATE application/javascript
-  AddOutputFilterByType DEFLATE application/x-javascript
-  AddOutputFilterByType DEFLATE application/json
-  AddOutputFilterByType DEFLATE application/xml
-  AddOutputFilterByType DEFLATE image/svg+xml
-  AddOutputFilterByType DEFLATE font/ttf
-  AddOutputFilterByType DEFLATE font/otf
-  AddOutputFilterByType DEFLATE font/woff
-  AddOutputFilterByType DEFLATE font/woff2
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript
+  AddOutputFilterByType DEFLATE application/javascript application/x-javascript application/json application/xml
+  AddOutputFilterByType DEFLATE image/svg+xml font/ttf font/otf font/woff font/woff2
 </IfModule>
 
-# 7. Browser Caching (Statik Dosya Önbellekleme)
+# 7. Browser Caching
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresDefault "access plus 1 month"
 
-  # HTML & Manifest (Hızlı güncelleme için kısa süre)
+  # HTML & JSON & Manifest (Always fresh for SPA updates & SEO)
   ExpiresByType text/html "access plus 0 seconds"
   ExpiresByType application/json "access plus 0 seconds"
+  ExpiresByType text/xml "access plus 0 seconds"
+  ExpiresByType application/xml "access plus 0 seconds"
 
-  # CSS & JavaScript
+  # CSS & JS
   ExpiresByType text/css "access plus 1 year"
   ExpiresByType text/javascript "access plus 1 year"
   ExpiresByType application/javascript "access plus 1 year"
 
-  # Görseller & İkonlar
+  # Images & Icons
   ExpiresByType image/jpeg "access plus 1 year"
   ExpiresByType image/png "access plus 1 year"
   ExpiresByType image/webp "access plus 1 year"
   ExpiresByType image/svg+xml "access plus 1 year"
   ExpiresByType image/x-icon "access plus 1 year"
 
-  # Fontlar
+  # Fonts
   ExpiresByType font/woff "access plus 1 year"
   ExpiresByType font/woff2 "access plus 1 year"
-  ExpiresByType application/font-woff "access plus 1 year"
-  ExpiresByType application/font-woff2 "access plus 1 year"
 </IfModule>
 
 # 8. MIME Types

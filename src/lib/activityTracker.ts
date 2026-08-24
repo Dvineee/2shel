@@ -2,7 +2,7 @@ import { detectDevice, getSessionId, getVisitorId, DeviceInfo } from './deviceDe
 import { VisitorLog, VisitorStats } from '../types';
 
 export interface ActivityPayload {
-  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'heartbeat' | 'other';
+  action_type: 'page_view' | 'login' | 'register' | 'sponsor_click' | 'banner_click' | 'wheel_spin' | 'giveaway_entry' | 'store_purchase' | 'mines_game' | 'game_play' | 'heartbeat' | 'other';
   action_name?: string;
   path?: string;
   page_title?: string;
@@ -35,24 +35,20 @@ class ActivityTrackerService {
 
     try {
       const dev = this.getDevice();
-      const currentPath = payload.path || window.location.pathname + window.location.search;
+      const currentPath = payload.path || (typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/');
 
-      // DO NOT track admin panel routes or admin management actions
-      if (
-        currentPath.startsWith('/admin') ||
-        currentPath.includes('/admin') ||
-        payload.details?.is_admin ||
-        payload.action_name?.toLowerCase().includes('admin')
-      ) {
+      // DO NOT track admin panel paths (/admin, /admin/...)
+      const cleanPath = currentPath.toLowerCase().trim();
+      if (cleanPath.startsWith('/admin') || cleanPath === '/admin') {
         return;
       }
 
-      const currentTitle = payload.page_title || document.title || 'Shelby Online';
-      const ref = payload.referrer || document.referrer || '';
+      const currentTitle = payload.page_title || (typeof document !== 'undefined' ? document.title : '') || 'Shelby Online';
+      const ref = payload.referrer || (typeof document !== 'undefined' ? document.referrer : '') || '';
 
-      // Avoid identical rapid pageview spam within 1 second
+      // Avoid identical rapid pageview spam within 800ms
       const now = Date.now();
-      if (payload.action_type === 'page_view' && this.lastTrackedPath === currentPath && now - this.lastTrackedTime < 1000) {
+      if (payload.action_type === 'page_view' && this.lastTrackedPath === currentPath && now - this.lastTrackedTime < 800) {
         return;
       }
 
@@ -69,8 +65,8 @@ class ActivityTrackerService {
         path: currentPath,
         page_title: currentTitle,
         referrer: ref,
-        action_type: payload.action_type,
-        action_name: payload.action_name,
+        action_type: payload.action_type || 'page_view',
+        action_name: payload.action_name || (payload.action_type === 'page_view' ? `Sayfa Görüntülendi: ${currentTitle}` : 'Aktivite'),
         details: payload.details || {},
       };
 

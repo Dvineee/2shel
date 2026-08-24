@@ -17,6 +17,7 @@ import {
   Layers,
   ShoppingBag,
   Disc,
+  Bomb,
 } from 'lucide-react';
 import { formatDate } from '../../lib/utils';
 import { toast } from 'sonner';
@@ -115,6 +116,13 @@ export const LogsManager: React.FC = () => {
           color: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
           icon: Disc,
         };
+      case 'mines':
+      case 'mines_game':
+        return {
+          label: 'Mayın Tarlası',
+          color: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+          icon: Bomb,
+        };
       case 'store':
         return {
           label: 'Mağaza',
@@ -189,6 +197,7 @@ export const LogsManager: React.FC = () => {
         <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
           {[
             { id: 'all', label: 'Tümü' },
+            { id: 'mines', label: '💣 Mayın Tarlası' },
             { id: 'sponsor', label: 'Sponsorlar' },
             { id: 'pages', label: 'Sayfalar' },
             { id: 'settings', label: 'Ayarlar' },
